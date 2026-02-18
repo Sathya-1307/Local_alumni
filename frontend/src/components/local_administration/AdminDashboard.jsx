@@ -8,40 +8,21 @@ const AdminDashboard = () => {
   const [selectedRoles, setSelectedRoles] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // ==============================
-  // Load roles on page load
-  // ==============================
+  // ==================================
+  // Fixed Roles with Required IDs
+  // ==================================
   useEffect(() => {
-    fetchRoles();
+    setRoles([
+      { roleId: 3, name: "Webinar Coordinator" },
+      { roleId: 2, name: "Student Coordinator" },
+      { roleId: 9, name: "Placement Coordinator" },
+      { roleId: 7, name: "Mentorship Coordinator" }
+    ]);
   }, []);
 
-  const fetchRoles = async () => {
-    try {
-      const res = await axios.get("http://localhost:5000/api/admin/roles");
-
-      if (res.data && res.data.length > 0) {
-        setRoles(res.data);
-      } else {
-        setHardcodedRoles();
-      }
-    } catch (error) {
-      console.log("Roles API failed, using hardcoded roles");
-      setHardcodedRoles();
-    }
-  };
-
-  const setHardcodedRoles = () => {
-    setRoles([
-      { roleId: 1, name: "Webinar Coordinator" },
-      { roleId: 2, name: "Student Coordinator" },
-      { roleId: 3, name: "Placement Coordinator" },
-      { roleId: 4, name: "Mentorship Coordinator" }
-    ]);
-  };
-
-  // ==============================
+  // ==================================
   // Check Member
-  // ==============================
+  // ==================================
   const checkMember = async () => {
     if (!email || !email.includes("@")) {
       alert("Please enter a valid email");
@@ -69,28 +50,24 @@ const AdminDashboard = () => {
     }
   };
 
-  // ==============================
-  // Handle Checkbox
-  // ==============================
+  // ==================================
+  // Handle Checkbox Selection
+  // ==================================
   const handleCheckbox = (e) => {
     const roleId = Number(e.target.value);
 
-    setSelectedRoles((prevRoles) => {
+    setSelectedRoles((prev) => {
       if (e.target.checked) {
-        // Prevent duplicates
-        if (!prevRoles.includes(roleId)) {
-          return [...prevRoles, roleId];
-        }
-        return prevRoles;
+        return prev.includes(roleId) ? prev : [...prev, roleId];
       } else {
-        return prevRoles.filter((id) => id !== roleId);
+        return prev.filter((id) => id !== roleId);
       }
     });
   };
 
-  // ==============================
+  // ==================================
   // Assign Roles
-  // ==============================
+  // ==================================
   const assignRoles = async () => {
     if (!member) {
       alert("Please check a member first");
@@ -105,7 +82,7 @@ const AdminDashboard = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post(
+      await axios.post(
         "http://localhost:5000/api/admin/assign-roles",
         {
           memberId: member.memberId,
@@ -115,8 +92,7 @@ const AdminDashboard = () => {
 
       alert("✅ Roles successfully saved to database");
 
-      // Refresh member data after save
-      await checkMember();
+      await checkMember(); // Refresh roles after saving
 
     } catch (error) {
       alert(
@@ -189,15 +165,9 @@ const AdminDashboard = () => {
             ✅ Member Found
           </h3>
 
-          <p>
-            <b>Name:</b> {member.name}
-          </p>
-          <p>
-            <b>Email:</b> {member.email}
-          </p>
-          <p>
-            <b>Member ID:</b> {member.memberId}
-          </p>
+          <p><b>Name:</b> {member.name}</p>
+          <p><b>Email:</b> {member.email}</p>
+          <p><b>Member ID:</b> {member.memberId}</p>
 
           <h4
             style={{
@@ -225,13 +195,7 @@ const AdminDashboard = () => {
                     : "1px solid #ddd",
                 }}
               >
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    cursor: "pointer",
-                  }}
-                >
+                <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
                   <input
                     type="checkbox"
                     value={role.roleId}
