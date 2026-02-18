@@ -1,0 +1,770 @@
+/* Enhanced Reset and Base Styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* @Keyframes for Animation */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes logoShine {
+  0%, 100% { transform: skewX(-20deg) translateX(-100%); }
+  50% { transform: skewX(-20deg) translateX(100%); }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 🌀 Enhanced Form Wrapper - Purple Animated Gradient Background */
+.form-wrapper {
+  min-height: 100vh;
+  width: 100%;
+  /* Purple gradient background matching theme */
+  background: linear-gradient(135deg, #f5f7ff 0%, #f0f2ff 50%, #e6e9ff 100%);
+  background-size: 400% 400%;
+  animation: gradientShift 20s ease infinite;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 20px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Enhanced Dashboard Button (Purple Glassmorphism) */
+.dashboard-btn {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 12px;
+  color: #8b5cf6;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.15);
+  transition: all 0.3s ease;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  z-index: 100;
+  letter-spacing: 0.3px;
+}
+
+.dashboard-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 15px 40px rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.dashboard-btn:active {
+  transform: translateY(0);
+}
+
+/* Form Container */
+.form-container {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 15px;
+}
+
+/* Form Header */
+.form-header {
+  text-align: center;
+  margin-bottom: 40px;
+  animation: fadeInUp 0.8s ease;
+  padding: 0 10px;
+}
+
+.logo {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 28px;
+  box-shadow: 0 15px 35px rgba(139, 92, 246, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.logo::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.3), transparent);
+  animation: logoShine 3s infinite ease-in-out;
+}
+
+.logo svg {
+  width: 40px;
+  height: 40px;
+  color: white;
+  stroke-width: 2.5;
+}
+
+.form-title {
+  font-size: 2.5em;
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.form-subtitle {
+  color: #6b7280;
+  font-size: 1.05em;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Form Card - Glass Morphism */
+.form-card {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 50px 60px;
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  box-shadow: 0 20px 60px rgba(139, 92, 246, 0.15);
+  position: relative;
+  z-index: 1;
+  animation: fadeInUp 0.8s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Success Message Container */
+.success-message-container {
+  margin-bottom: 2rem;
+}
+
+.success-message {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+  animation: slideDown 0.5s ease-out;
+  border: 1px solid #059669;
+}
+
+.success-icon {
+  font-size: 2rem;
+  font-weight: bold;
+  background: white;
+  color: #10b981;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.success-content {
+  flex: 1;
+}
+
+.success-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.success-text {
+  margin: 0;
+  opacity: 0.9;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Form Content */
+.form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  width: 100%;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #2c3e50;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Required star */
+.required {
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+/* Form Inputs */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: 14px 18px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.2s ease;
+  outline: none;
+  background: white;
+  color: #2c3e50;
+  font-weight: 500;
+  box-sizing: border-box;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.input:hover,
+.select:hover,
+.textarea:hover {
+  border-color: #a78bfa;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Disabled Input */
+.disabled-input {
+  background: #f8f9ff;
+  color: #6b7280;
+  cursor: not-allowed;
+  border-color: rgba(139, 92, 246, 0.1);
+}
+
+/* Info text */
+.info-text {
+  font-size: 0.8em;
+  color: #6b7280;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Select Styling */
+.select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='%238b5cf6' d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 18px center;
+  padding-right: 48px;
+}
+
+.textarea {
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* Error States */
+.input-error {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.05) !important;
+}
+
+.input-error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+}
+
+.error-text {
+  font-size: 0.85em;
+  color: #ef4444;
+  font-weight: 500;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Loading Text */
+.loading-text {
+  font-size: 0.85em;
+  color: #8b5cf6;
+  font-style: italic;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Success checkmark for email validation */
+.form-group:first-child small[style*="color: #8b5cf6"] {
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Submit Button */
+.submit-btn {
+  width: 100%;
+  padding: 16px 30px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Inter', sans-serif;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.3);
+}
+
+.submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #a78bfa 0%, #c4b5fd 100%);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* Form Footer */
+.form-footer {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 0.85em;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* =================== RESPONSIVE DESIGN =================== */
+
+/* Tablet Screens */
+@media (max-width: 768px) {
+  .form-wrapper {
+    padding: 40px 20px;
+  }
+
+  .dashboard-btn {
+    top: 20px;
+    left: 20px;
+    padding: 10px 20px;
+    font-size: 0.85em;
+  }
+
+  .form-container {
+    padding: 0 10px;
+  }
+
+  .form-card {
+    padding: 40px 30px;
+    border-radius: 20px;
+  }
+
+  .form-title {
+    font-size: 2em;
+  }
+
+  .form-subtitle {
+    font-size: 0.95em;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    padding: 12px 16px;
+  }
+
+  /* Success Message for Tablet */
+  .success-message {
+    flex-direction: column;
+    text-align: center;
+    padding: 1.25rem;
+    gap: 0.75rem;
+  }
+
+  .success-icon {
+    width: 45px;
+    height: 45px;
+    font-size: 1.75rem;
+  }
+
+  .success-title {
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .success-text {
+    font-size: 0.9rem;
+  }
+}
+
+/* Mobile Screens */
+@media (max-width: 480px) {
+  .form-wrapper {
+    padding: 30px 16px;
+  }
+
+  .dashboard-btn {
+    top: 16px;
+    left: 16px;
+    padding: 8px 16px;
+    font-size: 0.8em;
+  }
+
+  .form-container {
+    padding: 0 8px;
+  }
+
+  .form-card {
+    padding: 32px 24px;
+    border-radius: 16px;
+  }
+
+  .logo {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 20px;
+  }
+
+  .logo svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .form-title {
+    font-size: 1.8em;
+  }
+
+  .form-subtitle {
+    font-size: 0.9em;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .textarea {
+    min-height: 120px;
+  }
+
+  .submit-btn {
+    padding: 14px 24px;
+    font-size: 15px;
+  }
+
+  /* Success Message for Mobile */
+  .success-message {
+    padding: 1rem;
+    gap: 0.5rem;
+  }
+
+  .success-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+  }
+
+  .success-title {
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .success-text {
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+}
+
+/* Small Mobile Screens */
+@media (max-width: 360px) {
+  .form-wrapper {
+    padding: 20px 12px;
+  }
+
+  .dashboard-btn {
+    top: 12px;
+    left: 12px;
+    padding: 7px 14px;
+    font-size: 0.75em;
+    border-radius: 10px;
+  }
+
+  .form-container {
+    padding: 0 6px;
+  }
+
+  .form-card {
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+
+  .logo {
+    width: 50px;
+    height: 50px;
+    margin-bottom: 16px;
+  }
+
+  .logo svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .form-title {
+    font-size: 1.6em;
+  }
+
+  .form-subtitle {
+    font-size: 0.85em;
+  }
+
+  .form-content {
+    gap: 20px;
+  }
+
+  .form-row {
+    gap: 16px;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    padding: 11px 12px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .textarea {
+    min-height: 100px;
+  }
+
+  .select {
+    background-position: right 12px center;
+    padding-right: 40px;
+  }
+
+  .submit-btn {
+    padding: 13px 20px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+
+  .error-text,
+  .loading-text,
+  .info-text {
+    font-size: 0.8em;
+  }
+}
+
+/* Landscape Mode for Mobile */
+@media (max-height: 600px) and (orientation: landscape) {
+  .form-wrapper {
+    padding: 20px;
+    align-items: flex-start;
+    min-height: auto;
+  }
+
+  .form-container {
+    margin-top: 60px;
+    margin-bottom: 30px;
+  }
+
+  .form-card {
+    padding: 25px 30px;
+  }
+
+  .form-title {
+    font-size: 1.8em;
+    margin-bottom: 5px;
+  }
+
+  .form-subtitle {
+    font-size: 0.9em;
+    margin-bottom: 15px;
+  }
+
+  .logo {
+    width: 50px;
+    height: 50px;
+    margin-bottom: 15px;
+  }
+
+  .logo svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .form-content {
+    gap: 15px;
+  }
+
+  .textarea {
+    min-height: 80px;
+  }
+
+  .success-message {
+    padding: 1rem;
+    margin-bottom: 20px;
+  }
+}
+
+/* Fix for iOS input zoom */
+@media screen and (max-width: 768px) {
+  .input,
+  .select,
+  .textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+}
+
+/* Fix for Firefox number input */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Ensure form doesn't overflow on small screens */
+.form-group,
+.form-row,
+.input,
+.select,
+.textarea {
+  max-width: 100%;
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .form-card {
+    background: rgba(30, 30, 40, 0.92);
+    border-color: rgba(139, 92, 246, 0.2);
+  }
+  
+  .input,
+  .select,
+  .textarea {
+    background: #1e1e2e;
+    border-color: #3f3f4e;
+    color: #e2e8f0;
+  }
+  
+  .disabled-input {
+    background: #2d2d3d;
+    color: #a0aec0;
+  }
+  
+  .label {
+    color: #e2e8f0;
+  }
+  
+  .form-title {
+    color: #f7fafc;
+  }
+  
+  .form-subtitle {
+    color: #cbd5e0;
+  }
+}
