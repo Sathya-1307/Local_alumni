@@ -23,15 +23,33 @@ router.get("/email/:email", async (req, res) => {
       });
     }
 
-    // Return required fields including MongoDB _id
+    let graduationYear = null;
+    const label = member.basic?.label || "";
+    
+
+    const yearMatch = label.match(/\b(19|20)\d{2}\b/); // Matches 1900-2099
+    if (yearMatch) {
+      graduationYear = parseInt(yearMatch[0]);
+    }
+
+    let endYears = [];
+    if (member.education_details && Array.isArray(member.education_details)) {
+      endYears = member.education_details.map(edu => edu.end_year).filter(year => year);
+    }
+
     res.json({
       success: true,
       member: {
-        _id: member._id.toString(), // Convert ObjectId to string
+        _id: member._id.toString(),
         name: member.basic?.name || "",
         batch: member.basic?.label || "",
+        label: member.basic?.label || "",
+        graduationYear: graduationYear, // Extracted from label
         mobile: member.contact_details?.mobile || "",
         email: member.basic?.email_id || "",
+        education_details: member.education_details || [],
+        end_years: endYears,
+        basic: member.basic || {},
       },
     });
 

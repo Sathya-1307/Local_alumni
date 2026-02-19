@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// ADDED: Decryption function that matches MentorshipDashboard
+// Decryption function
 const decryptEmail = (encryptedEmail) => {
   try {
     return decodeURIComponent(atob(encryptedEmail));
@@ -30,7 +30,7 @@ const decryptEmail = (encryptedEmail) => {
   }
 };
 
-// ADDED: Encryption function for passing email
+// Encryption function
 const encryptEmail = (email) => {
   try {
     return btoa(encodeURIComponent(email));
@@ -38,6 +38,65 @@ const encryptEmail = (email) => {
     console.error('Error encrypting email:', error);
     return email;
   }
+};
+
+// Extract graduation year from label (e.g., "BE 2027, CSE" -> 2027)
+const extractYearFromLabel = (label) => {
+  if (!label) return null;
+  
+  // Pattern to find 4-digit year (1900-2099)
+  const yearMatch = label.match(/\b(19|20)\d{2}\b/);
+  return yearMatch ? parseInt(yearMatch[0]) : null;
+};
+
+// Check if user is alumni based on graduation year from label
+const checkIfUserIsAlumni = (memberData) => {
+  console.log('Checking alumni status with member data:', memberData);
+  
+  const currentYear = new Date().getFullYear();
+  console.log('Current year:', currentYear);
+  
+  // Try to get graduation year from label first
+  if (memberData?.label) {
+    const graduationYear = extractYearFromLabel(memberData.label);
+    console.log(`Graduation year from label: ${graduationYear}`);
+    
+    if (graduationYear) {
+      const isAlumni = graduationYear < currentYear;
+      console.log(`Is alumni (from label): ${isAlumni}`);
+      return isAlumni;
+    }
+  }
+  
+  // Fallback to graduationYear field if backend already extracted it
+  if (memberData?.graduationYear) {
+    const graduationYear = parseInt(memberData.graduationYear);
+    const isAlumni = graduationYear < currentYear;
+    console.log(`Is alumni (from graduationYear field): ${isAlumni}`);
+    return isAlumni;
+  }
+  
+  // Last resort: check education_details
+  if (memberData?.education_details && Array.isArray(memberData.education_details)) {
+    console.log('Falling back to education_details');
+    
+    // Get all end years and find the latest
+    const endYears = memberData.education_details
+      .map(edu => edu.end_year ? parseInt(edu.end_year) : null)
+      .filter(year => year !== null);
+    
+    if (endYears.length > 0) {
+      const latestYear = Math.max(...endYears);
+      console.log(`Latest education end year: ${latestYear}`);
+      
+      const isAlumni = latestYear < currentYear;
+      console.log(`Is alumni (from education_details): ${isAlumni}`);
+      return isAlumni;
+    }
+  }
+  
+  console.log('No valid graduation year found - not alumni');
+  return false;
 };
 
 const PlacementDashboard = ({ onBackToHome }) => {
@@ -51,7 +110,14 @@ const PlacementDashboard = ({ onBackToHome }) => {
   const [emailInput, setEmailInput] = useState('');
   const [hasRequestedPlacement, setHasRequestedPlacement] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
-  const [showDropdown, setShowDropdown] = useState(false); // ADDED: Dropdown state
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [userData, setUserData] = useState(null); // Store complete user data
+  const [userEducation, setUserEducation] = useState([]);
+  const [graduationYear, setGraduationYear] = useState(null);
+  const [isAlumni, setIsAlumni] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [isLoadingUser, setIsLoadingUser] = useState(false);
+  const [accessMessage, setAccessMessage] = useState('');
   
   const [currentPage, setCurrentPage] = useState(1);
   const applicationsPerPage = 6;
@@ -72,29 +138,132 @@ const PlacementDashboard = ({ onBackToHome }) => {
     };
   }, []);
 
-  // UPDATED: Use the proper decryption function
+  // Fetch user data from database to determine alumni status
+  const fetchUserDataFromDB = async (email) => {
+    setIsLoadingUser(true);
+    setAccessDenied(false);
+    setAccessMessage('');
+    
+    try {
+      console.log('Fetching user data for email:', email);
+      const response = await fetch(`${API_BASE_URL}/api/members/email/${encodeURIComponent(email)}`);
+      const data = await response.json();
+      
+      console.log('User data response:', data);
+      
+      if (data.success && data.member) {
+        // Store complete user data
+        setUserData(data.member);
+        
+        // Store education details
+        const education = data.member.education_details || [];
+        setUserEducation(education);
+        
+        // Extract graduation year from label
+        const extractedYear = extractYearFromLabel(data.member.label || data.member.batch);
+        setGraduationYear(extractedYear);
+        
+        console.log('Extracted graduation year:', extractedYear);
+        console.log('Education details:', education);
+        
+        // Check if user is alumni using label first
+        const alumniStatus = checkIfUserIsAlumni(data.member);
+        setIsAlumni(alumniStatus);
+        
+        if (alumniStatus) {
+          setUserRole('alumni');
+          await checkPlacementRequestStatus(email);
+          setAccessDenied(false);
+          console.log('Access GRANTED - User is alumni');
+        } else {
+          // Not an alumni - deny access with specific message
+          setUserRole('non-alumni');
+          setAccessDenied(true);
+          
+          const currentYear = new Date().getFullYear();
+          
+          if (extractedYear) {
+            if (extractedYear > currentYear) {
+              setAccessMessage(`You are a current student (expected graduation ${extractedYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
+            } else if (extractedYear === currentYear) {
+              setAccessMessage(`You are a current year student (graduating ${extractedYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
+            } else {
+              setAccessMessage(`Your graduation year (${extractedYear}) is before ${currentYear}, but no valid education record found.`);
+            }
+          } else {
+            // Check education_details for message
+            const endYears = education.map(edu => edu.end_year).filter(Boolean);
+            const latestYear = endYears.length > 0 ? Math.max(...endYears.map(y => parseInt(y))) : null;
+            
+            if (latestYear) {
+              if (latestYear > currentYear) {
+                setAccessMessage(`You are a current student (expected graduation ${latestYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
+              } else if (latestYear === currentYear) {
+                setAccessMessage(`You are a current year student (graduating ${latestYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
+              } else {
+                setAccessMessage(`No valid graduation year found in label. Only alumni with graduation year < ${currentYear} can access.`);
+              }
+            } else {
+              setAccessMessage(`No valid graduation year found. Only alumni with graduation year < ${currentYear} can access.`);
+            }
+          }
+          
+          console.log('Access DENIED - User is not alumni');
+        }
+        
+        return alumniStatus;
+      } else {
+        // User not found in database
+        console.log('User not found in members collection');
+        setUserRole('unknown');
+        setAccessDenied(true);
+        setAccessMessage(`Email not found in alumni database. Please register or use a registered email.`);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      setUserRole('unknown');
+      setAccessDenied(true);
+      setAccessMessage('Error verifying alumni status. Please try again.');
+      return false;
+    } finally {
+      setIsLoadingUser(false);
+    }
+  };
+
+  // Handle email from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const emailFromUrl = params.get("email");
     
     if (emailFromUrl) {
       try {
-        // Use the same decryption function as MentorshipDashboard
+        // Decrypt email
         const email = decryptEmail(decodeURIComponent(emailFromUrl));
         setUserEmail(email);
         
-        // Determine user role
+        // Check if it's admin or coordinator first (hardcoded emails)
         if (email === "vsnithyasaminathan143@gmail.com") {
           setUserRole("admin");
+          setIsAlumni(true);
+          setAccessDenied(false);
+          setView("dashboard");
+          fetchDashboardData();
         } else if (email === "kanthisaranya@gmail.com") {
           setUserRole("coordinator");
+          setIsAlumni(true);
+          setAccessDenied(false);
+          setView("dashboard");
+          fetchDashboardData();
         } else {
-          setUserRole("alumni");
-          checkPlacementRequestStatus(email);
+          // For other users, fetch from database to check alumni status
+          fetchUserDataFromDB(email).then((isAlumniUser) => {
+            if (isAlumniUser) {
+              setView("dashboard");
+              fetchDashboardData();
+            }
+          });
         }
-        
-        setView("dashboard");
-        fetchDashboardData();
         
         // Clean URL after successful authentication
         const newUrl = window.location.origin + window.location.pathname;
@@ -109,11 +278,15 @@ const PlacementDashboard = ({ onBackToHome }) => {
           
           if (email === "vsnithyasaminathan143@gmail.com") {
             setUserRole("admin");
+            setIsAlumni(true);
+            setAccessDenied(false);
           } else if (email === "kanthisaranya@gmail.com") {
             setUserRole("coordinator");
+            setIsAlumni(true);
+            setAccessDenied(false);
           } else {
-            setUserRole("alumni");
-            checkPlacementRequestStatus(email);
+            // For other users, fetch from database
+            fetchUserDataFromDB(email);
           }
           
           setView("dashboard");
@@ -128,6 +301,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
     } 
   }, []);
 
+  // Handle email submit from form
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
     if (!emailInput.trim()) {
@@ -138,19 +312,26 @@ const PlacementDashboard = ({ onBackToHome }) => {
     const email = emailInput.trim().toLowerCase();
     setUserEmail(email);
 
+    // Check for admin/coordinator first
     if (email === 'vsnithyasaminathan143@gmail.com') {
       setUserRole('admin');
+      setIsAlumni(true);
+      setAccessDenied(false);
       setView('dashboard');
       fetchDashboardData();
     } else if (email === 'kanthisaranya@gmail.com') {
       setUserRole('coordinator');
+      setIsAlumni(true);
+      setAccessDenied(false);
       setView('dashboard');
       fetchDashboardData();
     } else {
-      setUserRole('alumni');
-      await checkPlacementRequestStatus(email);
-      setView('dashboard');
-      fetchDashboardData();
+      // For other users, fetch from database
+      const isAlumniUser = await fetchUserDataFromDB(email);
+      if (isAlumniUser) {
+        setView('dashboard');
+        fetchDashboardData();
+      }
     }
   };
 
@@ -295,21 +476,20 @@ const PlacementDashboard = ({ onBackToHome }) => {
   };
 
   useEffect(() => {
-    if (view === 'dashboard') {
+    if (view === 'dashboard' && isAlumni) {
       console.log('Auto-refreshing dashboard data...');
       fetchDashboardData();
     }
-  }, [view, dataVersion]);
+  }, [view, dataVersion, isAlumni]);
 
   const forceDataRefresh = () => {
     setDataVersion(prev => prev + 1);
   };
 
-  // ADDED: Navigation functions
+  // Navigation functions
   const handleWebinarClick = () => {
     setShowDropdown(false);
     if (userEmail) {
-      // Encrypt email for Webinar dashboard
       const encryptedEmail = encryptEmail(userEmail);
       navigate(`/webinar-dashboard?email=${encodeURIComponent(encryptedEmail)}`);
     } else {
@@ -320,7 +500,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
   const handleMentorshipClick = () => {
     setShowDropdown(false);
     if (userEmail) {
-      // Encrypt email for Mentorship dashboard
       const encryptedEmail = encryptEmail(userEmail);
       navigate(`/dashboard?email=${encodeURIComponent(encryptedEmail)}`);
     } else {
@@ -349,6 +528,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
     return colors[status] || colors.pending;
   };
 
+  // Get available actions based on user role
   const getAvailableActions = () => {
     if (userRole === 'admin') {
       return [
@@ -489,8 +669,151 @@ const PlacementDashboard = ({ onBackToHome }) => {
     </div>
   );
 
+  const AccessDeniedView = () => {
+    const currentYear = new Date().getFullYear();
+    
+    return (
+      <div className="placement-dashboard">
+        <div className="dashboard-content" style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(20px)',
+            borderRadius: '24px',
+            padding: '60px 40px',
+            boxShadow: '0 20px 60px rgba(239, 68, 68, 0.15)',
+            textAlign: 'center',
+            border: '2px solid #ef4444'
+          }}>
+            <div style={{
+              width: '80px',
+              height: '80px',
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              borderRadius: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 24px',
+              boxShadow: '0 10px 30px rgba(239, 68, 68, 0.3)'
+            }}>
+              <X size={40} color="white" />
+            </div>
+
+            <h2 style={{
+              fontSize: '32px',
+              fontWeight: '700',
+              color: '#1e293b',
+              marginBottom: '12px'
+            }}>
+              Access Denied
+            </h2>
+
+            <p style={{
+              fontSize: '18px',
+              color: '#ef4444',
+              marginBottom: '20px',
+              fontWeight: '500'
+            }}>
+              You are not an alumni
+            </p>
+
+            <p style={{
+              fontSize: '16px',
+              color: '#64748b',
+              marginBottom: '20px'
+            }}>
+              {accessMessage || `This dashboard is only accessible to alumni who have already graduated (graduation year < ${currentYear}).`}
+            </p>
+
+            {userData && (
+              <div style={{
+                marginTop: '20px',
+                padding: '20px',
+                background: '#f3f4f6',
+                borderRadius: '12px',
+                textAlign: 'left'
+              }}>
+                <p style={{ fontWeight: '600', marginBottom: '10px', color: '#374151' }}>Your Details:</p>
+                <div style={{ marginBottom: '10px', padding: '8px', background: 'white', borderRadius: '6px' }}>
+                  <div><strong>Name:</strong> {userData.name || 'N/A'}</div>
+                  <div><strong>Batch/Label:</strong> {userData.batch || userData.label || 'N/A'}</div>
+                  {graduationYear && (
+                    <div><strong>Graduation Year:</strong> {graduationYear}</div>
+                  )}
+                </div>
+                
+                {userEducation.length > 0 && (
+                  <>
+                    <p style={{ fontWeight: '600', marginTop: '10px', marginBottom: '10px', color: '#374151' }}>Education Details:</p>
+                    {userEducation.map((edu, index) => {
+                      const endYear = edu.end_year ? parseInt(edu.end_year) : null;
+                      const isEligible = endYear && endYear < currentYear;
+                      
+                      return (
+                        <div key={index} style={{ 
+                          marginBottom: '8px',
+                          padding: '8px',
+                          background: 'white',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          borderLeft: isEligible ? '4px solid #10b981' : '4px solid #ef4444'
+                        }}>
+                          <div><strong>Course:</strong> {edu.course || 'N/A'}</div>
+                          <div><strong>Stream:</strong> {edu.stream || 'N/A'}</div>
+                          <div><strong>End Year:</strong> {edu.end_year || 'N/A'}</div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                
+                <p style={{ marginTop: '10px', fontSize: '13px', color: '#6b7280' }}>
+                  Current Year: {currentYear}
+                </p>
+                <p style={{ marginTop: '5px', fontSize: '13px', color: '#ef4444', fontWeight: '500' }}>
+                  You need graduation year less than {currentYear} to access.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setView('email-entry');
+                setAccessDenied(false);
+                setEmailInput('');
+              }}
+              style={{
+                marginTop: '30px',
+                padding: '14px 30px',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: 'white',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+              }}
+            >
+              Try Another Email
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const EmailEntryView = () => {
     const emailInputRef = useRef(null);
+    const currentYear = new Date().getFullYear();
     
     useEffect(() => {
       if (emailInputRef.current) {
@@ -529,15 +852,27 @@ const PlacementDashboard = ({ onBackToHome }) => {
               color: '#1e293b',
               marginBottom: '12px'
             }}>
-              Welcome to Placement Portal
+              Alumni Placement Portal
             </h2>
 
             <p style={{
               fontSize: '16px',
               color: '#64748b',
-              marginBottom: '40px'
+              marginBottom: '10px'
             }}>
               Enter your email address to access the dashboard
+            </p>
+
+            <p style={{
+              fontSize: '14px',
+              color: '#ef4444',
+              marginBottom: '30px',
+              fontWeight: '500',
+              padding: '10px',
+              background: '#fee2e2',
+              borderRadius: '8px'
+            }}>
+              ⚠️ Only alumni with graduation year BEFORE {currentYear} can access
             </p>
 
             <form onSubmit={handleEmailSubmit}>
@@ -558,6 +893,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
                   onChange={(e) => setEmailInput(e.target.value)}
                   placeholder="Enter your email address"
                   required
+                  disabled={isLoadingUser}
                   style={{
                     width: '100%',
                     padding: '14px 16px',
@@ -566,47 +902,54 @@ const PlacementDashboard = ({ onBackToHome }) => {
                     borderRadius: '12px',
                     outline: 'none',
                     transition: 'all 0.3s ease',
-                    fontFamily: 'inherit'
+                    fontFamily: 'inherit',
+                    opacity: isLoadingUser ? 0.7 : 1,
+                    cursor: isLoadingUser ? 'not-allowed' : 'text'
                   }}
                   onFocus={(e) => {
-                    e.target.style.borderColor = '#7c3aed';
-                    e.target.style.boxShadow = '0 0 0 4px rgba(124, 58, 237, 0.1)';
+                    if (!isLoadingUser) {
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.boxShadow = '0 0 0 4px rgba(124, 58, 237, 0.1)';
+                    }
                   }}
                   onBlur={(e) => {
                     e.target.style.borderColor = '#e2e8f0';
                     e.target.style.boxShadow = 'none';
                   }}
                   autoComplete="email"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
                 />
               </div>
 
               <button
                 type="submit"
+                disabled={isLoadingUser}
                 style={{
                   width: '100%',
                   padding: '16px',
                   fontSize: '16px',
                   fontWeight: '600',
                   color: 'white',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: isLoadingUser ? '#9ca3af' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   border: 'none',
                   borderRadius: '12px',
-                  cursor: 'pointer',
+                  cursor: isLoadingUser ? 'not-allowed' : 'pointer',
                   transition: 'all 0.3s ease',
-                  boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                  boxShadow: isLoadingUser ? 'none' : '0 4px 15px rgba(102, 126, 234, 0.4)'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.transform = 'translateY(-2px)';
-                  e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                  if (!isLoadingUser) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.transform = 'translateY(0)';
-                  e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                  if (!isLoadingUser) {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                  }
                 }}
               >
-                Continue to Dashboard
+                {isLoadingUser ? 'Checking...' : 'Continue to Dashboard'}
               </button>
             </form>
 
@@ -623,7 +966,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 color: '#7c3aed',
                 marginBottom: '8px'
               }}>
-                Different Access Levels:
+                Alumni Access Requirements:
               </p>
               <ul style={{
                 fontSize: '13px',
@@ -631,9 +974,10 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 paddingLeft: '20px',
                 margin: 0
               }}>
-                <li style={{ marginBottom: '4px' }}>Admin: View-only access to all features</li>
-                <li style={{ marginBottom: '4px' }}>Coordinator: Manage companies & interviews</li>
-                <li>Alumni: Submit requests & view assignments</li>
+                <li style={{ marginBottom: '4px' }}>✓ Must have graduation year BEFORE {currentYear}</li>
+                <li style={{ marginBottom: '4px' }}>✓ Access to placement opportunities</li>
+                <li style={{ marginBottom: '4px' }}>✓ Submit job requests</li>
+                <li>✓ View assigned companies</li>
               </ul>
             </div>
           </div>
@@ -693,11 +1037,32 @@ const PlacementDashboard = ({ onBackToHome }) => {
               </h2>
             
               <p style={{ fontSize: '14px', color: '#64748b', marginTop: '8px' }}>
-                Logged in as: <strong>{userEmail}</strong>
+                Logged in as: <strong>{userEmail}</strong> 
+                <span style={{ 
+                  marginLeft: '8px',
+                  padding: '2px 8px',
+                  background: '#7c3aed',
+                  color: 'white',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  textTransform: 'capitalize'
+                }}>
+                  Alumni
+                </span>
               </p>
+              {graduationYear && (
+                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                  Graduation Year: {graduationYear}
+                </p>
+              )}
+              {userEducation.length > 0 && !graduationYear && (
+                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                  Education: {userEducation.map(edu => edu.end_year).filter(Boolean).join(', ')}
+                </p>
+              )}
             </div>
             
-            {/* ADDED: Three-dot menu at top-right */}
+            {/* Three-dot menu at top-right */}
             <div className="placement-header-menu">
               <button 
                 className="menu-button"
@@ -1083,96 +1448,108 @@ const PlacementDashboard = ({ onBackToHome }) => {
   };
 
   const renderCurrentView = () => {
+    // If access denied, show access denied view
+    if (accessDenied) {
+      return <AccessDeniedView />;
+    }
+
+    // If not alumni and not admin/coordinator, show email entry
     if (view === 'email-entry') {
       return <EmailEntryView />;
     }
 
-    switch (view) {
-      case 'dashboard':
-        return <DashboardView />;
-      case 'admin-dashboard':
-        return (userRole === 'coordinator') ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AdminDashboard />
-          </div>
-        ) : <DashboardView />;
-      case 'assigned-companies':
-        return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AssignedCompanies userEmail={userEmail} />
-          </div>
-        ) : <DashboardView />;
-      case 'add-company':
-        return (userRole === 'coordinator') ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
-          </div>
-        ) : <DashboardView />;
-      case 'all-companies':
-        return userRole === 'admin' ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <Companies />
-          </div>
-        ) : <DashboardView />;
-      case 'interview-results':
-        return (userRole === 'coordinator') ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <InterviewResults />
-          </div>
-        ) : <DashboardView />;
-      case 'interview-results-view':
-        return userRole === 'admin' ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
-          </div>
-        ) : <DashboardView />;
-      case 'alumni-feedback-display':
-        return userRole === 'admin' ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AlumniFeedbackDisplay />
-          </div>
-        ) : <DashboardView />;
-      case 'alumni-job-requests':
-        return userRole === 'admin' ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
-          </div>
-        ) : <DashboardView />;
-      case 'placement-feedback':
-        return (userRole === 'coordinator') ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <PlacementFeedbackForm />
-          </div>
-        ) : <DashboardView />;
-      case 'placement-data-request':
-        return (userRole === 'alumni') ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <PlacementDataRequestForm 
-              userEmail={userEmail} 
-              onSubmitSuccess={handlePlacementRequestSubmit}
-            />
-          </div>
-        ) : <DashboardView />;
-      case 'requester-feedback':
-        return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <RequesterFeedbackForm userEmail={userEmail} />
-          </div>
-        ) : <DashboardView />;
-      default:
-        return <DashboardView />;
+    // For alumni, show dashboard or other views
+    if (isAlumni || userRole === 'admin' || userRole === 'coordinator') {
+      switch (view) {
+        case 'dashboard':
+          return <DashboardView />;
+        case 'admin-dashboard':
+          return (userRole === 'coordinator') ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AdminDashboard />
+            </div>
+          ) : <DashboardView />;
+        case 'assigned-companies':
+          return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AssignedCompanies userEmail={userEmail} />
+            </div>
+          ) : <DashboardView />;
+        case 'add-company':
+          return (userRole === 'coordinator') ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
+            </div>
+          ) : <DashboardView />;
+        case 'all-companies':
+          return userRole === 'admin' ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <Companies />
+            </div>
+          ) : <DashboardView />;
+        case 'interview-results':
+          return (userRole === 'coordinator') ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <InterviewResults />
+            </div>
+          ) : <DashboardView />;
+        case 'interview-results-view':
+          return userRole === 'admin' ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
+            </div>
+          ) : <DashboardView />;
+        case 'alumni-feedback-display':
+          return userRole === 'admin' ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AlumniFeedbackDisplay />
+            </div>
+          ) : <DashboardView />;
+        case 'alumni-job-requests':
+          return userRole === 'admin' ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
+            </div>
+          ) : <DashboardView />;
+        case 'placement-feedback':
+          return (userRole === 'coordinator') ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <PlacementFeedbackForm />
+            </div>
+          ) : <DashboardView />;
+        case 'placement-data-request':
+          return (userRole === 'alumni') ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <PlacementDataRequestForm 
+                userEmail={userEmail} 
+                onSubmitSuccess={handlePlacementRequestSubmit}
+              />
+            </div>
+          ) : <DashboardView />;
+        case 'requester-feedback':
+          return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <RequesterFeedbackForm userEmail={userEmail} />
+            </div>
+          ) : <DashboardView />;
+        default:
+          return <DashboardView />;
+      }
     }
+
+    // Default fallback
+    return <EmailEntryView />;
   };
 
   return (
@@ -1189,5 +1566,4 @@ const PlacementDashboard = ({ onBackToHome }) => {
     </div>
   );
 };
-
 export default PlacementDashboard;
