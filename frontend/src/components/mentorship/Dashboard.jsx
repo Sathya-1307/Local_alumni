@@ -44,7 +44,7 @@ const REFRESH_INTERVALS = {
   ASSIGNMENTS: 120000
 };
 
-// ADDED: Encryption/Decryption functions
+// Encryption/Decryption functions
 const encryptEmail = (email) => {
   try {
     return btoa(encodeURIComponent(email));
@@ -61,6 +61,31 @@ const decryptEmail = (encryptedEmail) => {
     console.error('Error decrypting email:', error);
     return encryptedEmail;
   }
+};
+
+// ADDED: Extract graduation year from label
+const extractYearFromLabel = (label) => {
+  if (!label) return null;
+  const yearMatch = label.match(/\b(19|20)\d{2}\b/);
+  return yearMatch ? parseInt(yearMatch[0]) : null;
+};
+
+// ADDED: Determine user type based on graduation year
+const determineUserType = (memberData) => {
+  const currentYear = new Date().getFullYear();
+  
+  if (memberData?.label) {
+    const graduationYear = extractYearFromLabel(memberData.label);
+    if (graduationYear) {
+      return graduationYear < currentYear ? 'alumni' : 'student';
+    }
+  }
+  
+  if (memberData?.graduationYear) {
+    return parseInt(memberData.graduationYear) < currentYear ? 'alumni' : 'student';
+  }
+  
+  return 'student'; // default
 };
 
 export default function RealTimeDashboard() {
@@ -82,6 +107,11 @@ export default function RealTimeDashboard() {
   const [refreshIntervals, setRefreshIntervals] = useState(REFRESH_INTERVALS);
   const [authLoading, setAuthLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  
+  // ADDED: User type states
+  const [userType, setUserType] = useState(''); // 'student' or 'alumni'
+  const [graduationYear, setGraduationYear] = useState(null);
+  const [userData, setUserData] = useState(null);
   
   // Real-time data states
   const [dashboardStats, setDashboardStats] = useState({
@@ -111,6 +141,30 @@ export default function RealTimeDashboard() {
 
   const [timers, setTimers] = useState({});
 
+  // ADDED: Function to fetch user data from members collection
+  const fetchUserDataFromDB = async (email) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/members/email/${encodeURIComponent(email)}`);
+      const data = await response.json();
+      
+      if (data.success && data.member) {
+        setUserData(data.member);
+        
+        const extractedYear = extractYearFromLabel(data.member.label || data.member.batch);
+        setGraduationYear(extractedYear);
+        
+        const type = determineUserType(data.member);
+        setUserType(type);
+        
+        return { success: true, type };
+      }
+      return { success: false, type: 'student' };
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      return { success: false, type: 'student' };
+    }
+  };
+
   // UPDATED: Function to check user's actual role with hardcoded emails
   const checkUserRole = useCallback(async (email) => {
     try {
@@ -138,7 +192,7 @@ export default function RealTimeDashboard() {
     }
   }, []);
 
-  // ADDED: Get email from URL on component mount
+  // UPDATED: Get email from URL and fetch user data
   useEffect(() => {
     const getEmailAndAuthenticate = async () => {
       setAuthLoading(true);
@@ -167,11 +221,14 @@ export default function RealTimeDashboard() {
       }
       
       if (email) {
+        // Fetch user data from members collection first
+        const userDataResult = await fetchUserDataFromDB(email);
+        
         const role = await checkUserRole(email);
         setUserEmail(email);
         setUserRole(role);
         localStorage.setItem('userRole', role);
-        console.log('User authenticated in dashboard:', { email, role });
+        console.log('User authenticated in dashboard:', { email, role, userType: userDataResult.type });
         
         // Clean URL after successful authentication
         window.history.replaceState({}, '', window.location.pathname);
@@ -533,7 +590,7 @@ export default function RealTimeDashboard() {
     mentor.name.toLowerCase().includes(searchMentor.toLowerCase())
   );
 
-  // Quick actions based on user role
+  // Quick actions based on user role - UNCHANGED
   const allQuickActions = [
     {
       id: 1,
@@ -609,11 +666,28 @@ export default function RealTimeDashboard() {
     }
   ];
 
+  // MODIFIED: Filter actions based on user role and user type
   const getFilteredQuickActions = () => {
     if (!userRole) return [];
     
     return allQuickActions.filter(action => {
-      return action.roles.includes(userRole);
+      // For non-new_user roles, check role match only
+      if (userRole !== 'new_user') {
+        return action.roles.includes(userRole);
+      }
+      
+      // For new_user, show registration based on user type
+      if (userRole === 'new_user') {
+        if (action.id === 1 && userType === 'student') {
+          return true; // Show mentee registration for students
+        }
+        if (action.id === 2 && userType === 'alumni') {
+          return true; // Show mentor registration for alumni
+        }
+        return false; // Don't show other actions for new users
+      }
+      
+      return false;
     });
   };
 
@@ -705,12 +779,15 @@ export default function RealTimeDashboard() {
       case 'coordinator': return '#8b5cf6';
       case 'mentor': return '#3b82f6';
       case 'mentee': return '#10b981';
-      case 'new_user': return '#f59e0b';
+      case 'new_user': 
+        // MODIFIED: Show different color based on user type
+        return userType === 'alumni' ? '#8b5cf6' : '#3b82f6';
       case 'admin': return '#ef4444';
       default: return '#6b7280';
     }
   };
 
+  // MODIFIED: Display name for new_user based on user type
   const getRoleDisplayName = (role) => {
     if (!role) return 'Loading...';
     
@@ -718,7 +795,8 @@ export default function RealTimeDashboard() {
       case 'coordinator': return 'Coordinator';
       case 'mentor': return 'Mentor';
       case 'mentee': return 'Mentee';
-      case 'new_user': return 'New User';
+      case 'new_user': 
+        return userType === 'alumni' ? 'Alumni' : 'Student';
       case 'admin': return 'Admin';
       default: return role.charAt(0).toUpperCase() + role.slice(1);
     }
@@ -1021,6 +1099,19 @@ export default function RealTimeDashboard() {
         <div className="role-badge">
           {getRoleDisplayName(userRole)}
         </div>
+        {/* ADDED: Show user type badge for new_users */}
+        {/* {userRole === 'new_user' && userType && (
+          <span className={`user-type-badge ${userType}`} style={{
+            background: userType === 'alumni' ? '#8b5cf6' : '#3b82f6',
+            color: 'white',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontSize: '12px',
+            marginLeft: '8px'
+          }}>
+            {userType === 'alumni' ? 'Alumni' : 'Student'}
+          </span>
+        )} */}
         {userEmail && (
           <div className="email-display">
             <span className="email-label">Logged in as:</span>
@@ -1198,7 +1289,12 @@ export default function RealTimeDashboard() {
         <div className="actions-section">
           <div className="section-header">
             <h2 className="section-title">Quick Actions</h2>
-            <p className="search-subtitle">Quick access for {getRoleDisplayName(userRole)} role</p>
+            <p className="search-subtitle">
+              {userRole === 'new_user' 
+                ? `${userType === 'alumni' ? 'Alumni' : 'Student'} access - ${userType === 'alumni' ? 'Mentor' : 'Mentee'} registration available`
+                : `Quick access for ${getRoleDisplayName(userRole)} role`
+              }
+            </p>
           </div>
           
           <div className="actions-grid">
@@ -1215,7 +1311,12 @@ export default function RealTimeDashboard() {
                   </div>
                   <div className="action-content">
                     <h3 className="action-title">{action.title}</h3>
-                    <span className="action-role">{getRoleDisplayName(userRole)}</span>
+                    <span className="action-role">
+                      {userRole === 'new_user' 
+                        ? (userType === 'alumni' ? 'Alumni' : 'Student')
+                        : getRoleDisplayName(userRole)
+                      }
+                    </span>
                     <p className="action-description">{action.description}</p>
                   </div>
                 </div>
