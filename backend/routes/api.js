@@ -29,6 +29,7 @@ router.use("/meeting-status", require("./meetingStatusRoutes"));
 // Phase management routes
 router.use("/phase", require("./phaseRoutes"));
 router.use("/dashboard", require("./dashboardRoutes"));
+router.use("/permissions", require("./auth.js"));
 
 
 module.exports = router;
