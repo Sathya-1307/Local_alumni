@@ -4,6 +4,11 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const User = require('../models/User');
 
+// Import models for mentorship tables
+const MentorRegistration = require('../models/MentorRegistration');
+const MenteeRequest = require('../models/MenteeRequest');
+const MentorMenteeAssignment = require('../models/MentorMenteeAssignment');
+
 // ==========================================
 // HELPER FUNCTIONS - EXACTLY MATCHING FRONTEND
 // ==========================================
@@ -164,6 +169,12 @@ const getDefaultRoleId = async (adminDb, userType) => {
       case 'student':
         roleName = 'Student';
         break;
+      case 'mentor':
+        roleName = 'Mentor';
+        break;
+      case 'mentee':
+        roleName = 'Mentee';
+        break;
       case 'admin':
         roleName = 'Admin';
         break;
@@ -186,78 +197,227 @@ const getDefaultRoleId = async (adminDb, userType) => {
   }
 };
 
-// Helper function to get icon for screen
+// ==========================================
+// MENTOR/MENTEE TABLE CHECKING FUNCTIONS
+// MATCHING DASHBOARD CONTROLLER SCHEMA
+// ==========================================
+
+// Check if user is in mentee table (using MenteeRequest model)
+const checkMenteeTable = async (userId) => {
+  try {
+    console.log(`🔍 Checking mentee table for userId: ${userId}`);
+    
+    // Use the MenteeRequest model to find by mentee_user_id
+    const mentee = await MenteeRequest.findOne({ 
+      mentee_user_id: userId 
+    });
+    
+    if (mentee) {
+      console.log('✅ User found in mentee table with status:', mentee.status);
+      return { 
+        isMentee: true, 
+        data: mentee,
+        status: mentee.status,
+        phaseId: mentee.phaseId,
+        area_of_interest: mentee.area_of_interest
+      };
+    }
+    
+    console.log('❌ User not found in mentee table');
+    return { isMentee: false, data: null };
+  } catch (error) {
+    console.error('Error checking mentee table:', error);
+    return { isMentee: false, data: null };
+  }
+};
+
+// Check if user is in mentor table (using MentorRegistration model)
+const checkMentorTable = async (userId) => {
+  try {
+    console.log(`🔍 Checking mentor table for userId: ${userId}`);
+    
+    // Use the MentorRegistration model to find by mentor_id
+    const mentor = await MentorRegistration.findOne({ 
+      mentor_id: userId 
+    });
+    
+    if (mentor) {
+      console.log('✅ User found in mentor table with phase:', mentor.phaseId);
+      return { 
+        isMentor: true, 
+        data: mentor,
+        phaseId: mentor.phaseId,
+        areas_of_interest: mentor.areas_of_interest
+      };
+    }
+    
+    console.log('❌ User not found in mentor table');
+    return { isMentor: false, data: null };
+  } catch (error) {
+    console.error('Error checking mentor table:', error);
+    return { isMentor: false, data: null };
+  }
+};
+
+// Enhanced function to check complete mentorship status
+const checkUserMentorshipStatus = async (userId) => {
+  try {
+    console.log(`\n📋 CHECKING COMPLETE MENTORSHIP STATUS FOR USER: ${userId}`);
+    
+    // Check both tables in parallel
+    const [menteeResult, mentorResult] = await Promise.all([
+      checkMenteeTable(userId),
+      checkMentorTable(userId)
+    ]);
+    
+    // Check if mentee is assigned to any mentor
+    let isAssigned = false;
+    let mentorId = null;
+    
+    if (menteeResult.isMentee) {
+      const assignment = await MentorMenteeAssignment.findOne({
+        mentee_user_ids: userId
+      });
+      isAssigned = !!assignment;
+      mentorId = assignment?.mentor_user_id;
+    }
+    
+    // Determine user's mentorship role
+    let mentorshipRole = null;
+    let mentorshipData = null;
+    let phaseId = null;
+    
+    if (menteeResult.isMentee && mentorResult.isMentor) {
+      mentorshipRole = 'both';
+      mentorshipData = {
+        mentee: menteeResult.data,
+        mentor: mentorResult.data
+      };
+      phaseId = mentorResult.phaseId || menteeResult.phaseId;
+      console.log('✅ User is BOTH mentor and mentee');
+    } 
+    else if (menteeResult.isMentee) {
+      mentorshipRole = 'mentee';
+      mentorshipData = menteeResult.data;
+      phaseId = menteeResult.phaseId;
+      console.log('✅ User is a MENTEE with status:', menteeResult.status);
+    } 
+    else if (mentorResult.isMentor) {
+      mentorshipRole = 'mentor';
+      mentorshipData = mentorResult.data;
+      phaseId = mentorResult.phaseId;
+      console.log('✅ User is a MENTOR');
+    } 
+    else {
+      console.log('❌ User is not in mentor or mentee tables');
+    }
+    
+    return {
+      hasMentorshipRole: !!(menteeResult.isMentee || mentorResult.isMentor),
+      mentorshipRole,
+      mentorshipData,
+      phaseId,
+      isAssigned,
+      mentorId,
+      details: {
+        isMentee: menteeResult.isMentee,
+        menteeStatus: menteeResult.status,
+        isMentor: mentorResult.isMentor,
+        mentorPhase: mentorResult.phaseId,
+        isAssignedToMentor: isAssigned
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error checking mentorship status:', error);
+    return {
+      hasMentorshipRole: false,
+      mentorshipRole: null,
+      mentorshipData: null,
+      phaseId: null,
+      isAssigned: false,
+      mentorId: null,
+      details: {}
+    };
+  }
+};
+
+// Check if user is an approved mentee
+const checkApprovedMentee = async (userId) => {
+  try {
+    const mentee = await MenteeRequest.findOne({ 
+      mentee_user_id: userId,
+      status: { $in: ['approved', 'active', 'assigned'] }
+    });
+    
+    return {
+      isApprovedMentee: !!mentee,
+      data: mentee,
+      status: mentee?.status
+    };
+  } catch (error) {
+    console.error('Error checking approved mentee:', error);
+    return { isApprovedMentee: false, data: null };
+  }
+};
+
+// Check if mentor is active
+const checkActiveMentor = async (userId) => {
+  try {
+    const mentor = await MentorRegistration.findOne({ 
+      mentor_id: userId 
+    });
+    
+    // Check if mentor has active assignments
+    const assignments = await MentorMenteeAssignment.find({
+      mentor_user_id: userId
+    });
+    
+    return {
+      isActiveMentor: !!mentor,
+      data: mentor,
+      phaseId: mentor?.phaseId,
+      assignmentCount: assignments.length,
+      totalMentees: assignments.reduce((sum, a) => sum + a.mentee_user_ids.length, 0)
+    };
+  } catch (error) {
+    console.error('Error checking active mentor:', error);
+    return { isActiveMentor: false, data: null };
+  }
+};
+
+// ==========================================
+// ICON AND COLOR FUNCTIONS - BASED ON YOUR SCREENS TABLE
+// ==========================================
+
+// Helper function to get icon for screen - MATCHING YOUR SCREEN NAMES
 const getIconForScreen = (screenName) => {
   const iconMap = {
-    // Webinar screens
-    'Topic Approval Form': 'CheckSquare',
-    'Webinar Completed Details Upload': 'Upload',
-    'Speaker Assignment Form': 'Microphone',
-    'Alumni Feedback Form': 'MessageSquare',
-    'Admin Page (Webinar)': 'Settings',
-    'Webinar Details': 'Info',
-    'Student Request Form': 'FileText',
-    'Webinar Events': 'Calendar',
-    'Webinar Dashboard': 'Layout',
-    'Webinar Circular': 'Bell',
-    'Webinar Certificate': 'Award',
-    'Student Feedback Form': 'MessageCircle',
+    // Mentorship screens (from your data)
+    'Coordinator Dashboard': 'Users',
     
-    // Mentorship screens
+    // Add other mentorship screens as needed
     'Meeting Status Update': 'CalendarCheck',
     'Program Feedback': 'MessageSquare',
     'Scheduled Dashboard': 'Calendar',
     'Admin Dashboard (Mentorship)': 'BarChart3',
-    'Coordinator Dashboard': 'Users',
-    
-    // Placement screens
-    'Placement Dashboard': 'Briefcase',
-    'Placement Admin Dashboard': 'Building',
-    'Placement Feedback Form': 'FileText',
-    'Requester Feedback Form': 'MessageCircle',
-    'Alumni Feedback Display': 'Star',
-    'Alumni Job Requests Display': 'Users',
-    
-    // Registration screens
     'Mentee Registration': 'UserPlus',
     'Mentor Registration': 'GraduationCap'
   };
   return iconMap[screenName] || 'HelpCircle';
 };
 
-// Helper function to get color for screen
+// Helper function to get color for screen - MATCHING YOUR SCREEN NAMES
 const getColorForScreen = (screenName) => {
   const colorMap = {
-    // Webinar screens
-    'Topic Approval Form': '#8b5cf6',
-    'Webinar Completed Details Upload': '#10b981',
-    'Speaker Assignment Form': '#f59e0b',
-    'Alumni Feedback Form': '#ec4899',
-    'Admin Page (Webinar)': '#ef4444',
-    'Webinar Details': '#6366f1',
-    'Student Request Form': '#3b82f6',
-    'Webinar Events': '#14b8a6',
-    'Webinar Dashboard': '#6b7280',
-    'Webinar Circular': '#f97316',
-    'Webinar Certificate': '#eab308',
-    'Student Feedback Form': '#06b6d4',
+    // Mentorship screens (from your data)
+    'Coordinator Dashboard': '#f59e0b',
     
-    // Mentorship screens
+    // Add other mentorship screens as needed
     'Meeting Status Update': '#3b82f6',
     'Program Feedback': '#8b5cf6',
     'Scheduled Dashboard': '#10b981',
     'Admin Dashboard (Mentorship)': '#ef4444',
-    'Coordinator Dashboard': '#f59e0b',
-    
-    // Placement screens
-    'Placement Dashboard': '#6366f1',
-    'Placement Admin Dashboard': '#ec4899',
-    'Placement Feedback Form': '#14b8a6',
-    'Requester Feedback Form': '#f97316',
-    'Alumni Feedback Display': '#eab308',
-    'Alumni Job Requests Display': '#06b6d4',
-    
-    // Registration screens
     'Mentee Registration': '#3b82f6',
     'Mentor Registration': '#8b5cf6'
   };
@@ -279,9 +439,13 @@ router.get('/check-role-mapping/:roleId', async (req, res) => {
     
     const screenIds = permissions.map(p => p.screenId);
     
+    // IMPORTANT: Only fetch screens where module is 'MENTORSHIP' (uppercase)
     const screens = await adminDb
       .collection("screens")
-      .find({ screenId: { $in: screenIds } })
+      .find({ 
+        screenId: { $in: screenIds },
+        module: 'MENTORSHIP'  // Uppercase as in your database
+      })
       .toArray();
     
     // Get role name
@@ -296,7 +460,8 @@ router.get('/check-role-mapping/:roleId', async (req, res) => {
       permissionsCount: permissions.length,
       permissions: permissions,
       screensCount: screens.length,
-      screens: screens
+      screens: screens,
+      filteredModule: 'MENTORSHIP' // Indicate we filtered by mentorship module
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -310,10 +475,21 @@ router.get('/check-all', async (req, res) => {
   try {
     const adminDb = mongoose.connection.useDb("local_Administration");
     
+    // Get ALL screens but we'll show module information
     const allScreens = await adminDb
       .collection("screens")
       .find({})
       .toArray();
+    
+    // Group screens by module
+    const screensByModule = {};
+    allScreens.forEach(screen => {
+      const module = screen.module || 'unknown';
+      if (!screensByModule[module]) {
+        screensByModule[module] = [];
+      }
+      screensByModule[module].push(screen);
+    });
     
     const allRoles = await adminDb
       .collection("roles")
@@ -339,7 +515,8 @@ router.get('/check-all', async (req, res) => {
       rolesCount: allRoles.length,
       roles: allRoles,
       screensCount: allScreens.length,
-      screens: allScreens,
+      screensByModule: screensByModule, // Show screens grouped by module
+      mentorshipScreensCount: screensByModule['MENTORSHIP']?.length || 0,
       permissionsCount: allPermissions.length,
       permissionsByRole: permissionsByRole
     });
@@ -361,6 +538,9 @@ router.get('/debug/:email', async (req, res) => {
     if (!user) {
       return res.json({ success: false, message: 'User not found' });
     }
+    
+    // Check mentorship status
+    const mentorshipStatus = await checkUserMentorshipStatus(user._id);
     
     // Create a clean user object with all relevant fields
     const userData = {
@@ -386,6 +566,7 @@ router.get('/debug/:email', async (req, res) => {
       userData: userData,
       foundGraduationYear: foundYear,
       determinedUserType: userType,
+      mentorshipStatus: mentorshipStatus,
       allFields: user
     });
   } catch (error) {
@@ -441,8 +622,10 @@ router.get('/', async (req, res) => {
     const adminDb = mongoose.connection.useDb("local_Administration");
     console.log('🔌 Connected to local_Administration database');
     
-    // Check if user exists in assign_roles table
-    console.log('🔍 Checking assign_roles for memberId:', user._id);
+    // ==========================================
+    // STEP 1: Check if user exists in assign_roles table
+    // ==========================================
+    console.log('\n📋 STEP 1: Checking assign_roles for memberId:', user._id);
     const assignedRoles = await adminDb
       .collection("assign_roles")
       .find({ memberId: user._id })
@@ -456,8 +639,9 @@ router.get('/', async (req, res) => {
     let userType = 'unknown';
     let roleNames = [];
     let isCoordinator = false;
+    let isAssignedRole = assignedRoles && assignedRoles.length > 0;
     
-    if (assignedRoles && assignedRoles.length > 0) {
+    if (isAssignedRole) {
       // ==========================================
       // CASE 1: USER HAS ASSIGNED ROLES
       // ==========================================
@@ -522,13 +706,16 @@ router.get('/', async (req, res) => {
         const screenIds = [...new Set(permissions.map(p => p.screenId))];
         console.log('Unique Screen IDs:', screenIds);
         
-        // Get screen details
-        console.log('🔍 Fetching screen details from screens table...');
+        // IMPORTANT: Only fetch screens where module is 'MENTORSHIP' (uppercase)
+        console.log('🔍 Fetching MENTORSHIP screens from screens table...');
         const screens = await adminDb
           .collection("screens")
-          .find({ screenId: { $in: screenIds } })
+          .find({ 
+            screenId: { $in: screenIds },
+            module: 'MENTORSHIP'  // Uppercase as in your database
+          })
           .toArray();
-        console.log('Screens found:', screens.length);
+        console.log('MENTORSHIP screens found:', screens.length);
         
         // Create screen map for quick lookup
         const screenMap = {};
@@ -536,20 +723,12 @@ router.get('/', async (req, res) => {
           screenMap[screen.screenId] = screen;
         });
         
-        // Remove duplicate screens (keep first occurrence)
-        const uniquePermissions = [];
-        const seenScreenIds = new Set();
+        // Filter permissions to only those with mentorship screens
+        const mentorshipPermissions = permissions.filter(p => screenMap[p.screenId]);
         
-        permissions.forEach(permission => {
-          if (!seenScreenIds.has(permission.screenId)) {
-            seenScreenIds.add(permission.screenId);
-            uniquePermissions.push(permission);
-          }
-        });
-        
-        console.log('Building quick actions...');
+        console.log('Building quick actions from MENTORSHIP screens...');
         // Build quick actions
-        quickActions = uniquePermissions.map(permission => {
+        quickActions = mentorshipPermissions.map(permission => {
           const screen = screenMap[permission.screenId];
           if (!screen) return null;
           
@@ -563,7 +742,7 @@ router.get('/', async (req, res) => {
             icon: getIconForScreen(screen.name),
             path: screen.route,
             color: getColorForScreen(screen.name),
-            module: screen.module,
+            module: screen.module, // Will always be 'MENTORSHIP'
             roleIds: [permission.roleId],
             roleName: permissionRole ? permissionRole.name : null,
             permissions: {
@@ -575,7 +754,7 @@ router.get('/', async (req, res) => {
           };
         }).filter(action => action !== null);
         
-        console.log('✅ Quick actions built:', quickActions.length);
+        console.log('✅ Quick actions built from MENTORSHIP screens:', quickActions.length);
       } else {
         console.log('ℹ️ No permissions found for roles');
       }
@@ -583,92 +762,110 @@ router.get('/', async (req, res) => {
     } else {
       // ==========================================
       // CASE 2: USER HAS NO ASSIGNED ROLES
+      // STEP 2: Check mentee table using MenteeRequest model
       // ==========================================
-      console.log('ℹ️ User has NO assigned roles - determining user type');
+      console.log('\n📋 STEP 2: User has NO assigned roles - checking mentee table');
       
-      // Check if admin first
-      if (user.basic?.email_id === 'admin@gmail.com') {
-        userType = 'admin';
-        role = 'admin';
-        console.log('👑 Admin user detected');
-      } else {
-        // Determine user type based on graduation year
-        console.log('🔍 Searching for graduation year in all fields...');
-        userType = determineUserType(user);
-        role = userType;
-        console.log('✅ Final user type determined:', userType);
-      }
+      const menteeCheck = await checkMenteeTable(user._id);
       
-      // Get default roleId from roles table
-      const defaultRoleId = await getDefaultRoleId(adminDb, userType);
-      console.log('Default roleId:', defaultRoleId);
-      
-      if (defaultRoleId) {
-        roleIds = [defaultRoleId];
+      if (menteeCheck.isMentee) {
+        console.log('✅ User is a MENTEE with status:', menteeCheck.status);
+        userType = 'mentee';
+        role = 'mentee';
         
-        // Get role name
-        const defaultRole = await adminDb
-          .collection("roles")
-          .findOne({ roleId: defaultRoleId });
+        // Get default roleId for mentee
+        const defaultRoleId = await getDefaultRoleId(adminDb, 'mentee');
+        console.log('Default mentee roleId:', defaultRoleId);
         
-        if (defaultRole) {
-          role = defaultRole.name.toLowerCase();
-          roleNames = [defaultRole.name];
-          console.log('Role set to:', role);
+        if (defaultRoleId) {
+          roleIds = [defaultRoleId];
+          
+          // Get role name
+          const defaultRole = await adminDb
+            .collection("roles")
+            .findOne({ roleId: defaultRoleId });
+          
+          if (defaultRole) {
+            roleNames = [defaultRole.name];
+            console.log('Role set to:', role);
+          }
+          
+          // Fetch permissions from role_mapping (only MENTORSHIP screens)
+          await fetchPermissionsForRole(adminDb, defaultRoleId, defaultRole, quickActions);
         }
+      } else {
+        // ==========================================
+        // STEP 3: Check mentor table using MentorRegistration model
+        // ==========================================
+        console.log('\n📋 STEP 3: Not in mentee table - checking mentor table');
         
-        // FETCH SCREENS FROM ROLE_MAPPING
-        console.log(`🔍 Fetching permissions from role_mapping for roleId: ${defaultRoleId}`);
-        const permissions = await adminDb
-          .collection("role_mapping")
-          .find({ 
-            roleId: defaultRoleId,
-            canView: true 
-          })
-          .toArray();
-        console.log('Permissions found:', permissions.length);
+        const mentorCheck = await checkMentorTable(user._id);
         
-        if (permissions.length > 0) {
-          const screenIds = permissions.map(p => p.screenId);
-          console.log('Screen IDs from role_mapping:', screenIds);
+        if (mentorCheck.isMentor) {
+          console.log('✅ User is a MENTOR with phase:', mentorCheck.phaseId);
+          userType = 'mentor';
+          role = 'mentor';
           
-          const screens = await adminDb
-            .collection("screens")
-            .find({ screenId: { $in: screenIds } })
-            .toArray();
-          console.log('Screens found:', screens.length);
+          // Get default roleId for mentor
+          const defaultRoleId = await getDefaultRoleId(adminDb, 'mentor');
+          console.log('Default mentor roleId:', defaultRoleId);
           
-          const screenMap = {};
-          screens.forEach(screen => {
-            screenMap[screen.screenId] = screen;
-          });
-          
-          quickActions = permissions.map(permission => {
-            const screen = screenMap[permission.screenId];
-            if (!screen) return null;
+          if (defaultRoleId) {
+            roleIds = [defaultRoleId];
             
-            return {
-              id: screen.screenId,
-              title: screen.name,
-              description: `Access ${screen.name}`,
-              icon: getIconForScreen(screen.name),
-              path: screen.route,
-              color: getColorForScreen(screen.name),
-              module: screen.module,
-              roleIds: [defaultRoleId],
-              roleName: defaultRole ? defaultRole.name : null,
-              permissions: {
-                canView: permission.canView,
-                canCreate: permission.canCreate || false,
-                canEdit: permission.canEdit || false,
-                canDelete: permission.canDelete || false
-              }
-            };
-          }).filter(action => action !== null);
-          
-          console.log(`✅ Built ${quickActions.length} quick actions from role_mapping`);
+            // Get role name
+            const defaultRole = await adminDb
+              .collection("roles")
+              .findOne({ roleId: defaultRoleId });
+            
+            if (defaultRole) {
+              roleNames = [defaultRole.name];
+              console.log('Role set to:', role);
+            }
+            
+            // Fetch permissions from role_mapping (only MENTORSHIP screens)
+            await fetchPermissionsForRole(adminDb, defaultRoleId, defaultRole, quickActions);
+          }
         } else {
-          console.log('ℹ️ No permissions found in role_mapping for this role');
+          // ==========================================
+          // STEP 4: Determine student/alumni status
+          // ==========================================
+          console.log('\n📋 STEP 4: Not in mentee or mentor tables - determining student/alumni status');
+          
+          // Check if admin first
+          if (user.basic?.email_id === 'admin@gmail.com') {
+            userType = 'admin';
+            role = 'admin';
+            console.log('👑 Admin user detected');
+          } else {
+            // Determine user type based on graduation year
+            console.log('🔍 Searching for graduation year in all fields...');
+            userType = determineUserType(user);
+            role = userType;
+            console.log('✅ Final user type determined:', userType);
+          }
+          
+          // Get default roleId from roles table
+          const defaultRoleId = await getDefaultRoleId(adminDb, userType);
+          console.log('Default roleId:', defaultRoleId);
+          
+          if (defaultRoleId) {
+            roleIds = [defaultRoleId];
+            
+            // Get role name
+            const defaultRole = await adminDb
+              .collection("roles")
+              .findOne({ roleId: defaultRoleId });
+            
+            if (defaultRole) {
+              role = defaultRole.name.toLowerCase();
+              roleNames = [defaultRole.name];
+              console.log('Role set to:', role);
+            }
+            
+            // Fetch permissions from role_mapping (only MENTORSHIP screens)
+            await fetchPermissionsForRole(adminDb, defaultRoleId, defaultRole, quickActions);
+          }
         }
       }
     }
@@ -679,8 +876,8 @@ router.get('/', async (req, res) => {
     console.log('roleIds:', roleIds);
     console.log('roleNames:', roleNames);
     console.log('isCoordinator:', isCoordinator);
-    console.log('quickActionsCount:', quickActions.length);
-    console.log('isAssignedRole:', assignedRoles.length > 0);
+    console.log('quickActionsCount (MENTORSHIP only):', quickActions.length);
+    console.log('isAssignedRole:', isAssignedRole);
     console.log('=====================================\n');
     
     res.json({ 
@@ -690,8 +887,8 @@ router.get('/', async (req, res) => {
       roleIds,
       roleNames,
       isCoordinator,
-      quickActions,
-      isAssignedRole: assignedRoles && assignedRoles.length > 0
+      quickActions, // This will ONLY contain MENTORSHIP module screens
+      isAssignedRole
     });
     
   } catch (error) {
@@ -701,6 +898,96 @@ router.get('/', async (req, res) => {
       message: 'Server error',
       error: error.message 
     });
+  }
+});
+
+// ==========================================
+// UPDATED: Helper function to fetch permissions for a role
+// NOW FILTERS FOR MENTORSHIP MODULE ONLY (UPPERCASE)
+// ==========================================
+async function fetchPermissionsForRole(adminDb, roleId, role, quickActionsArray) {
+  console.log(`🔍 Fetching permissions from role_mapping for roleId: ${roleId}`);
+  const permissions = await adminDb
+    .collection("role_mapping")
+    .find({ 
+      roleId: roleId,
+      canView: true 
+    })
+    .toArray();
+  console.log('Permissions found:', permissions.length);
+  
+  if (permissions.length > 0) {
+    const screenIds = permissions.map(p => p.screenId);
+    console.log('Screen IDs from role_mapping:', screenIds);
+    
+    // IMPORTANT: Only fetch screens where module is 'MENTORSHIP' (uppercase)
+    const screens = await adminDb
+      .collection("screens")
+      .find({ 
+        screenId: { $in: screenIds },
+        module: 'MENTORSHIP'  // Uppercase as in your database
+      })
+      .toArray();
+    console.log('MENTORSHIP screens found:', screens.length);
+    
+    const screenMap = {};
+    screens.forEach(screen => {
+      screenMap[screen.screenId] = screen;
+    });
+    
+    // Filter permissions to only those with mentorship screens
+    const mentorshipPermissions = permissions.filter(p => screenMap[p.screenId]);
+    
+    const actions = mentorshipPermissions.map(permission => {
+      const screen = screenMap[permission.screenId];
+      if (!screen) return null;
+      
+      return {
+        id: screen.screenId,
+        title: screen.name,
+        description: `Access ${screen.name}`,
+        icon: getIconForScreen(screen.name),
+        path: screen.route,
+        color: getColorForScreen(screen.name),
+        module: screen.module, // Will always be 'MENTORSHIP'
+        roleIds: [roleId],
+        roleName: role ? role.name : null,
+        permissions: {
+          canView: permission.canView,
+          canCreate: permission.canCreate || false,
+          canEdit: permission.canEdit || false,
+          canDelete: permission.canDelete || false
+        }
+      };
+    }).filter(action => action !== null);
+    
+    quickActionsArray.push(...actions);
+    console.log(`✅ Built ${actions.length} quick actions from MENTORSHIP screens`);
+  } else {
+    console.log('ℹ️ No permissions found in role_mapping for this role');
+  }
+}
+
+// ==========================================
+// NEW: Endpoint to get only MENTORSHIP screens
+// ==========================================
+router.get('/mentorship-screens', async (req, res) => {
+  try {
+    const adminDb = mongoose.connection.useDb("local_Administration");
+    
+    const mentorshipScreens = await adminDb
+      .collection("screens")
+      .find({ module: 'MENTORSHIP' }) // Uppercase as in your database
+      .toArray();
+    
+    res.json({
+      success: true,
+      count: mentorshipScreens.length,
+      screens: mentorshipScreens
+    });
+  } catch (error) {
+    console.error('Error fetching mentorship screens:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 

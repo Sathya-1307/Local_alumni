@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { 
@@ -29,7 +29,8 @@ import {
   Activity,
   MoreVertical,
   Video,
-  Briefcase as BriefcaseIcon
+  Briefcase as BriefcaseIcon,
+  HelpCircle
 } from 'lucide-react';
 import './MentorshipDashboard.css';
 
@@ -63,14 +64,14 @@ const decryptEmail = (encryptedEmail) => {
   }
 };
 
-// ADDED: Extract graduation year from label
+// Extract graduation year from label
 const extractYearFromLabel = (label) => {
   if (!label) return null;
   const yearMatch = label.match(/\b(19|20)\d{2}\b/);
   return yearMatch ? parseInt(yearMatch[0]) : null;
 };
 
-// ADDED: Determine user type based on graduation year
+// Determine user type based on graduation year
 const determineUserType = (memberData) => {
   const currentYear = new Date().getFullYear();
   
@@ -88,9 +89,46 @@ const determineUserType = (memberData) => {
   return 'student'; // default
 };
 
+// Map icon names from API to Lucide React components
+const iconMap = {
+  'Users': Users,
+  'UserPlus': UserPlus,
+  'CheckCircle': CheckCircle,
+  'PauseCircle': PauseCircle,
+  'TrendingUp': TrendingUp,
+  'Award': Award,
+  'Clock': Clock,
+  'Calendar': Calendar,
+  'FileText': FileText,
+  'MessageSquare': MessageSquare,
+  'BarChart3': BarChart3,
+  'Building': Building,
+  'Search': Search,
+  'X': X,
+  'LogOut': LogOut,
+  'ChevronLeft': ChevronLeft,
+  'ChevronRight': ChevronRight,
+  'GraduationCap': GraduationCap,
+  'Briefcase': Briefcase,
+  'Target': Target,
+  'UsersIcon': UsersIcon,
+  'UserCheck': UserCheck,
+  'CalendarCheck': CalendarCheck,
+  'XCircle': XCircle,
+  'Activity': Activity,
+  'MoreVertical': MoreVertical,
+  'Video': Video,
+  'BriefcaseIcon': BriefcaseIcon,
+  'HelpCircle': HelpCircle
+};
+
 export default function RealTimeDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Use refs to prevent duplicate calls
+  const authInProgress = useRef(false);
+  const dataFetchInProgress = useRef(false);
   
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchMentor, setSearchMentor] = useState('');
@@ -107,11 +145,16 @@ export default function RealTimeDashboard() {
   const [refreshIntervals, setRefreshIntervals] = useState(REFRESH_INTERVALS);
   const [authLoading, setAuthLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [dataFetchError, setDataFetchError] = useState(false);
+  const [apiTimeout, setApiTimeout] = useState(false);
   
-  // ADDED: User type states
+  // User type states
   const [userType, setUserType] = useState(''); // 'student' or 'alumni'
   const [graduationYear, setGraduationYear] = useState(null);
   const [userData, setUserData] = useState(null);
+  
+  // Quick actions from API
+  const [quickActions, setQuickActions] = useState([]);
   
   // Real-time data states
   const [dashboardStats, setDashboardStats] = useState({
@@ -141,13 +184,15 @@ export default function RealTimeDashboard() {
 
   const [timers, setTimers] = useState({});
 
-  // ADDED: Function to fetch user data from members collection
+  // Function to fetch user data from members collection
   const fetchUserDataFromDB = async (email) => {
     try {
+      console.log('🔍 Fetching user data for email:', email);
       const response = await fetch(`${API_BASE_URL}/api/members/email/${encodeURIComponent(email)}`);
       const data = await response.json();
       
       if (data.success && data.member) {
+        console.log('✅ User data fetched successfully');
         setUserData(data.member);
         
         const extractedYear = extractYearFromLabel(data.member.label || data.member.batch);
@@ -158,44 +203,43 @@ export default function RealTimeDashboard() {
         
         return { success: true, type };
       }
+      console.log('⚠️ User data not found');
       return { success: false, type: 'student' };
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      console.error('❌ Error fetching user data:', error);
       return { success: false, type: 'student' };
     }
   };
 
-  // UPDATED: Function to check user's actual role with hardcoded emails
-  const checkUserRole = useCallback(async (email) => {
+  // Function to fetch user permissions from the API
+  const fetchUserPermissions = async (email) => {
     try {
-      const cleanEmail = email.toLowerCase().trim();
+      console.log('🔍 Fetching permissions for email:', email);
+      const response = await axios.get(`${API_BASE_URL}/api/permissions`, {
+        params: { email },
+        timeout: 10000 // 10 second timeout
+      });
       
-      // Check hardcoded emails first
-      if (cleanEmail === "rampriya-aids@nec.edu.in") {
-        return 'coordinator';
+      if (response.data.success) {
+        console.log('✅ Permissions fetched successfully:', response.data);
+        return response.data;
       }
-      if (cleanEmail === "admin@gmail.com") {
-        return 'admin';
-      }
-      
-      // Use the same login endpoint to get user's actual role
-      const res = await axios.post(`${API_BASE_URL}/api/auth/login`, { email: cleanEmail });
-      
-      if (res.data.success) {
-        // The existing endpoint returns role: "mentor", "mentee", or "new_user"
-        return res.data.role || 'new_user';
-      }
-      return 'new_user'; // fallback
+      return null;
     } catch (error) {
-      console.error('Error checking user role:', error);
-      return 'new_user'; // fallback
+      console.error('❌ Error fetching permissions:', error);
+      return null;
     }
-  }, []);
+  };
 
-  // UPDATED: Get email from URL and fetch user data
+  // Get email from URL and fetch user data and permissions
   useEffect(() => {
+    // Prevent duplicate authentication calls
+    if (authInProgress.current) return;
+    authInProgress.current = true;
+    
     const getEmailAndAuthenticate = async () => {
       setAuthLoading(true);
+      console.log('📍 Starting authentication process...');
       
       // Check URL parameters for encrypted email
       const urlParams = new URLSearchParams(location.search);
@@ -210,38 +254,62 @@ export default function RealTimeDashboard() {
           if (decryptedEmail && decryptedEmail.includes('@')) {
             email = decryptedEmail;
             localStorage.setItem('userEmail', email);
-            console.log('User email decrypted from URL in dashboard:', email);
+            console.log('✅ User email decrypted from URL:', email);
           }
         } catch (error) {
-          console.error('Error decrypting email from URL:', error);
+          console.error('❌ Error decrypting email from URL:', error);
         }
       } else {
         // Get email from localStorage (fallback)
         email = localStorage.getItem('userEmail') || '';
+        console.log('📧 Using email from localStorage:', email);
       }
       
       if (email) {
-        // Fetch user data from members collection first
+        // Fetch user data from members collection
         const userDataResult = await fetchUserDataFromDB(email);
         
-        const role = await checkUserRole(email);
-        setUserEmail(email);
-        setUserRole(role);
-        localStorage.setItem('userRole', role);
-        console.log('User authenticated in dashboard:', { email, role, userType: userDataResult.type });
+        // Fetch permissions from the new API
+        const permissionsData = await fetchUserPermissions(email);
+        
+        if (permissionsData) {
+          setUserRole(permissionsData.role);
+          setUserType(permissionsData.userType);
+          setQuickActions(permissionsData.quickActions || []);
+          localStorage.setItem('userRole', permissionsData.role);
+          console.log('✅ User authenticated successfully:', { 
+            email, 
+            role: permissionsData.role, 
+            userType: permissionsData.userType,
+            quickActionsCount: permissionsData.quickActions?.length 
+          });
+        } else {
+          // Fallback to old method if API fails
+          console.log('⚠️ Falling back to default user type');
+          setUserRole(userDataResult.type);
+          setUserType(userDataResult.type);
+          localStorage.setItem('userRole', userDataResult.type);
+        }
         
         // Clean URL after successful authentication
         window.history.replaceState({}, '', window.location.pathname);
       } else {
         // No email found, redirect to home
+        console.log('❌ No email found, redirecting to home');
         navigate('/');
       }
       
       setAuthLoading(false);
+      authInProgress.current = false;
     };
 
     getEmailAndAuthenticate();
-  }, [location.search, navigate, checkUserRole]);
+    
+    // Cleanup function
+    return () => {
+      authInProgress.current = false;
+    };
+  }, [location.search, navigate]); // Remove location.pathname from dependencies
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -284,91 +352,145 @@ export default function RealTimeDashboard() {
   // Real-time data fetching functions
   const fetchDashboardStats = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/stats`);
+      console.log('📊 Fetching dashboard stats...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/stats`, { timeout: 5000 });
       if (res.data.success) {
         setDashboardStats(res.data.stats);
         setLastUpdated(res.data.lastUpdated || new Date());
+        console.log('✅ Dashboard stats fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('❌ Error fetching stats:', error.message);
+      return false;
     }
   }, []);
 
   const fetchPhaseStats = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/phase-stats`);
+      console.log('📊 Fetching phase stats...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/phase-stats`, { timeout: 5000 });
       if (res.data.success) {
         setPhaseStats(res.data.phases || []);
+        console.log('✅ Phase stats fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching phase stats:', error);
+      console.error('❌ Error fetching phase stats:', error.message);
+      return false;
     }
   }, []);
 
   const fetchAllMentors = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/mentors`);
+      console.log('👥 Fetching mentors...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/mentors`, { timeout: 5000 });
       if (res.data.success) {
         setAllMentors(res.data.mentors || []);
+        console.log('✅ Mentors fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching mentors:', error);
+      console.error('❌ Error fetching mentors:', error.message);
+      return false;
     }
   }, []);
 
   const fetchAllMentees = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/mentees`);
+      console.log('👥 Fetching mentees...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/mentees`, { timeout: 5000 });
       if (res.data.success) {
         setAllMentees(res.data.mentees || []);
+        console.log('✅ Mentees fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching mentees:', error);
+      console.error('❌ Error fetching mentees:', error.message);
+      return false;
     }
   }, []);
 
   const fetchAllAssignments = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/assignments`);
+      console.log('📋 Fetching assignments...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/assignments`, { timeout: 5000 });
       if (res.data.success) {
         setAllAssignments(res.data.assignments || []);
+        console.log('✅ Assignments fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching assignments:', error);
+      console.error('❌ Error fetching assignments:', error.message);
+      return false;
     }
   }, []);
 
   const fetchAllMeetings = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/meetings`);
+      console.log('📅 Fetching meetings...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/meetings`, { timeout: 5000 });
       if (res.data.success) {
         setAllMeetings(res.data.meetings || []);
         setMeetingStats(res.data.stats);
+        console.log('✅ Meetings fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching meetings:', error);
+      console.error('❌ Error fetching meetings:', error.message);
+      return false;
     }
   }, []);
 
   const fetchAllFeedbacks = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/dashboard/feedbacks`);
+      console.log('💬 Fetching feedbacks...');
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard/feedbacks`, { timeout: 5000 });
       if (res.data.success) {
         setAllFeedbacks(res.data.feedbacks || []);
+        console.log('✅ Feedbacks fetched');
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error fetching feedbacks:', error);
+      console.error('❌ Error fetching feedbacks:', error.message);
+      return false;
     }
   }, []);
 
   // Setup real-time intervals (only if authenticated)
   useEffect(() => {
-    if (!userEmail || !userRole) return;
+    // Don't proceed if still authenticating or no user data
+    if (authLoading || !userEmail || !userRole) return;
     
-    const initialFetch = async () => {
+    // Prevent duplicate data fetching
+    if (dataFetchInProgress.current) return;
+    dataFetchInProgress.current = true;
+    
+    console.log('🚀 Setting up real-time data fetching...');
+    
+    // Set a timeout to detect if API calls are taking too long
+    const timeoutId = setTimeout(() => {
+      setApiTimeout(true);
+      setLoading(false);
+      setDataFetchError(true);
+      dataFetchInProgress.current = false;
+    }, 15000); // 15 second timeout for all data
+    
+    const fetchAllData = async () => {
       setIsRefreshing(true);
+      setDataFetchError(false);
+      setApiTimeout(false);
+      
       try {
-        await Promise.all([
+        // Use Promise.allSettled instead of Promise.all to handle individual failures
+        const results = await Promise.allSettled([
           fetchDashboardStats(),
           fetchPhaseStats(),
           fetchAllMentors(),
@@ -377,22 +499,56 @@ export default function RealTimeDashboard() {
           fetchAllMeetings(),
           fetchAllFeedbacks()
         ]);
+        
+        // Check if any requests failed
+        const failedCount = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value)).length;
+        
+        if (failedCount > 0) {
+          console.warn(`⚠️ ${failedCount} API requests failed`);
+          // Still show dashboard with partial data
+        }
+        
+        console.log('✅ Initial data fetching completed');
+        clearTimeout(timeoutId);
+        setLoading(false);
+        setApiTimeout(false);
       } catch (error) {
-        console.error('Initial fetch error:', error);
+        console.error('❌ Fatal error in data fetching:', error);
+        setDataFetchError(true);
+        clearTimeout(timeoutId);
+        setLoading(false);
       } finally {
         setIsRefreshing(false);
-        setLoading(false);
+        dataFetchInProgress.current = false;
       }
     };
 
-    initialFetch();
+    fetchAllData();
 
-    const intervalStats = setInterval(fetchDashboardStats, refreshIntervals.STATS);
-    const intervalPhaseStats = setInterval(fetchPhaseStats, refreshIntervals.PHASE_STATS);
-    const intervalMentors = setInterval(fetchAllMentors, refreshIntervals.MENTORS);
-    const intervalMentees = setInterval(fetchAllMentees, refreshIntervals.MENTEES);
-    const intervalAssignments = setInterval(fetchAllAssignments, refreshIntervals.ASSIGNMENTS);
-    const intervalMeetings = setInterval(fetchAllMeetings, refreshIntervals.MEETINGS);
+    // Set up intervals after initial fetch
+    const intervalStats = setInterval(() => {
+      fetchDashboardStats().catch(console.error);
+    }, REFRESH_INTERVALS.STATS);
+    
+    const intervalPhaseStats = setInterval(() => {
+      fetchPhaseStats().catch(console.error);
+    }, REFRESH_INTERVALS.PHASE_STATS);
+    
+    const intervalMentors = setInterval(() => {
+      fetchAllMentors().catch(console.error);
+    }, REFRESH_INTERVALS.MENTORS);
+    
+    const intervalMentees = setInterval(() => {
+      fetchAllMentees().catch(console.error);
+    }, REFRESH_INTERVALS.MENTEES);
+    
+    const intervalAssignments = setInterval(() => {
+      fetchAllAssignments().catch(console.error);
+    }, REFRESH_INTERVALS.ASSIGNMENTS);
+    
+    const intervalMeetings = setInterval(() => {
+      fetchAllMeetings().catch(console.error);
+    }, REFRESH_INTERVALS.MEETINGS);
 
     setTimers({
       stats: intervalStats,
@@ -404,9 +560,18 @@ export default function RealTimeDashboard() {
     });
 
     return () => {
-      Object.values(timers).forEach(timer => clearInterval(timer));
+      console.log('🧹 Cleaning up intervals...');
+      clearTimeout(timeoutId);
+      Object.values(timers.current).forEach(timer => clearInterval(timer));
+      dataFetchInProgress.current = false;
     };
-  }, [userEmail, userRole]);
+  }, [userEmail, userRole, authLoading]); // Add authLoading to dependencies
+
+  // Use a ref for timers to avoid dependency issues
+  const timersRef = useRef(timers);
+  useEffect(() => {
+    timersRef.current = timers;
+  }, [timers]);
 
   // Calculate derived data from real-time data
   useEffect(() => {
@@ -498,8 +663,11 @@ export default function RealTimeDashboard() {
   // Manual refresh function
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
+    setDataFetchError(false);
+    setApiTimeout(false);
+    
     try {
-      await Promise.all([
+      await Promise.allSettled([
         fetchDashboardStats(),
         fetchPhaseStats(),
         fetchAllMentors(),
@@ -508,8 +676,10 @@ export default function RealTimeDashboard() {
         fetchAllMeetings(),
         fetchAllFeedbacks()
       ]);
+      console.log('✅ Manual refresh completed');
     } catch (error) {
       console.error('Manual refresh error:', error);
+      setDataFetchError(true);
     } finally {
       setIsRefreshing(false);
     }
@@ -532,7 +702,7 @@ export default function RealTimeDashboard() {
     navigate('/admin_dashboard');
   };
 
-  // FIXED: Navigation function for other pages - PASS DECRYPTED EMAIL (NOT encrypted)
+  // Navigation function for other pages - PASS DECRYPTED EMAIL (NOT encrypted)
   const navigateWithEmail = (path) => {
     if (userEmail) {
       // PASS DECRYPTED EMAIL DIRECTLY IN URL (not encrypted)
@@ -542,7 +712,7 @@ export default function RealTimeDashboard() {
     }
   };
 
-  // ADDED: Get encrypted email for external URLs (for Webinar/Placement only)
+  // Get encrypted email for external URLs (for Webinar/Placement only)
   const getEncryptedEmailParam = () => {
     if (userEmail) {
       const encryptedEmail = encryptEmail(userEmail);
@@ -551,7 +721,7 @@ export default function RealTimeDashboard() {
     return '';
   };
 
-  // UPDATED: Handle Webinar navigation with ENCRYPTED email
+  // Handle Webinar navigation with ENCRYPTED email
   const handleWebinarClick = () => {
     setShowDropdown(false);
     if (userEmail) {
@@ -563,7 +733,7 @@ export default function RealTimeDashboard() {
     }
   };
 
-  // UPDATED: Handle Placement navigation with ENCRYPTED email
+  // Handle Placement navigation with ENCRYPTED email
   const handlePlacementClick = () => {
     setShowDropdown(false);
     if (userEmail) {
@@ -590,114 +760,11 @@ export default function RealTimeDashboard() {
     mentor.name.toLowerCase().includes(searchMentor.toLowerCase())
   );
 
-  // Quick actions based on user role - UNCHANGED
-  const allQuickActions = [
-    {
-      id: 1,
-      title: 'Register New Mentee',
-      description: 'Add a new mentee to the program',
-      icon: UserPlus,
-      path: '/menteeregistration',
-      color: '#3b82f6',
-      roles: ['new_user']
-    },
-    {
-      id: 2,
-      title: 'Register New Mentor',
-      description: 'Add a new mentor to the program',
-      icon: GraduationCap,
-      path: '/mentorregistration',
-      color: '#8b5cf6',
-      roles: ['new_user']
-    },
-    {
-      id: 3,
-      title: 'Assign Mentee to Mentor',
-      description: 'Assign mentees to available mentors',
-      icon: Users,
-      path: '/menteementor_assign',
-      color: '#10b981',
-      roles: ['coordinator', 'admin']
-    },
-    {
-      id: 4,
-      title: 'Schedule Meeting',
-      description: 'Schedule mentorship sessions',
-      icon: Calendar,
-      path: '/mentor_scheduling',
-      color: '#f59e0b',
-      roles: ['mentor','mentee']
-    },
-    {
-      id: 5,
-      title: 'View Scheduled Meetings',
-      description: 'View all scheduled meetings',
-      icon: CalendarCheck,
-      path: '/scheduled_dashboard',
-      color: '#8b5cf6',
-      roles: ['mentee', 'mentor', 'admin']
-    },
-    {
-      id: 6,
-      title: 'Program Feedback',
-      description: 'Collect and view program feedback',
-      icon: MessageSquare,
-      path: '/program_feedback',
-      color: '#ec4899',
-      roles: ['mentee', 'mentor', 'admin']
-    },
-    {
-      id: 7,
-      title: 'Phase Management',
-      description: 'Manage mentorship phases and semesters',
-      icon: BarChart3,
-      path: '/admin_dashboard',
-      color: '#8b5cf6',
-      roles: ['coordinator', 'admin']
-    },
-    {
-      id: 9,
-      title: 'Coordinator Dashboard',
-      description: 'Advanced analytics and management tools',
-      icon: Building,
-      path: '/co-ordinator',
-      color: '#ef4444',
-      roles: ['coordinator', 'admin']
-    }
-  ];
-
-  // MODIFIED: Filter actions based on user role and user type
-  const getFilteredQuickActions = () => {
-    if (!userRole) return [];
-    
-    return allQuickActions.filter(action => {
-      // For non-new_user roles, check role match only
-      if (userRole !== 'new_user') {
-        return action.roles.includes(userRole);
-      }
-      
-      // For new_user, show registration based on user type
-      if (userRole === 'new_user') {
-        if (action.id === 1 && userType === 'student') {
-          return true; // Show mentee registration for students
-        }
-        if (action.id === 2 && userType === 'alumni') {
-          return true; // Show mentor registration for alumni
-        }
-        return false; // Don't show other actions for new users
-      }
-      
-      return false;
-    });
-  };
-
-  const quickActions = getFilteredQuickActions();
-
   const handleQuickActionClick = (action) => {
-    if (action.id === 5 && userEmail) {
-      navigateWithEmail(`/scheduled_dashboard`);
+    if (userEmail) {
+      navigate(`${action.path}?email=${encodeURIComponent(userEmail)}`);
     } else {
-      navigateWithEmail(action.path);
+      navigate(action.path);
     }
   };
 
@@ -780,16 +847,22 @@ export default function RealTimeDashboard() {
       case 'mentor': return '#3b82f6';
       case 'mentee': return '#10b981';
       case 'new_user': 
-        // MODIFIED: Show different color based on user type
+        // Show different color based on user type
         return userType === 'alumni' ? '#8b5cf6' : '#3b82f6';
       case 'admin': return '#ef4444';
       default: return '#6b7280';
     }
   };
 
-  // MODIFIED: Display name for new_user based on user type
+  // Display name for user role
   const getRoleDisplayName = (role) => {
     if (!role) return 'Loading...';
+    
+    // If role is a comma-separated list (multiple roles), show the first one
+    if (role.includes(',')) {
+      const firstRole = role.split(',')[0].trim();
+      return firstRole;
+    }
     
     switch(role) {
       case 'coordinator': return 'Coordinator';
@@ -1043,6 +1116,44 @@ export default function RealTimeDashboard() {
         <div className="dashboard-loading-container">
           <div className="dashboard-spinner"></div>
           <p>Loading real-time dashboard data...</p>
+          {apiTimeout && (
+            <div style={{ marginTop: '20px', textAlign: 'center' }}>
+              <p style={{ color: '#f59e0b' }}>Taking longer than expected. Please check your connection.</p>
+              <button 
+                onClick={handleManualRefresh}
+                style={{
+                  padding: '8px 16px',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginTop: '10px'
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {dataFetchError && (
+            <div style={{ marginTop: '20px', textAlign: 'center' }}>
+              <p style={{ color: '#ef4444' }}>Failed to load data. Please try again.</p>
+              <button 
+                onClick={handleManualRefresh}
+                style={{
+                  padding: '8px 16px',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginTop: '10px'
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1058,71 +1169,57 @@ export default function RealTimeDashboard() {
       
       <div className="dashboard-container">
         {/* Header */}
-     <div className="dashboard-header">
-  <div className="header-content">
-    <div className="header-top">
-      <div className="logo-section">
-        <div className="logo">M</div>
-        <h1 className="title">Mentorship Dashboard</h1>
-        
-        {/* MOVED: Three-dot menu to top-right */}
-        <div className="header-menu">
-          <button 
-            className="menu-button"
-            onClick={() => setShowDropdown(!showDropdown)}
-            aria-label="More options"
-          >
-            <MoreVertical size={24} />
-          </button>
-          {showDropdown && (
-            <div className="dropdown-menu">
-              <button 
-                className="dropdown-item"
-                onClick={handleWebinarClick}
-              >
-                <Video size={18} />
-                <span>Webinar</span>
-              </button>
-              <button 
-                className="dropdown-item"
-                onClick={handlePlacementClick}
-              >
-                <BriefcaseIcon size={18} />
-                <span>Placement</span>
-              </button>
+        <div className="dashboard-header">
+          <div className="header-content">
+            <div className="header-top">
+              <div className="logo-section">
+                <div className="logo">M</div>
+                <h1 className="title">Mentorship Dashboard</h1>
+                
+                {/* Three-dot menu to top-right */}
+                <div className="header-menu">
+                  <button 
+                    className="menu-button"
+                    onClick={() => setShowDropdown(!showDropdown)}
+                    aria-label="More options"
+                  >
+                    <MoreVertical size={24} />
+                  </button>
+                  {showDropdown && (
+                    <div className="dropdown-menu">
+                      <button 
+                        className="dropdown-item"
+                        onClick={handleWebinarClick}
+                      >
+                        <Video size={18} />
+                        <span>Webinar</span>
+                      </button>
+                      <button 
+                        className="dropdown-item"
+                        onClick={handlePlacementClick}
+                      >
+                        <BriefcaseIcon size={18} />
+                        <span>Placement</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <br/>
+              <div className="user-info">
+                <div className="role-badge">
+                  {getRoleDisplayName(userRole)}
+                </div>
+                {userEmail && (
+                  <div className="email-display">
+                    <span className="email-label">Logged in as:</span>
+                    <span className="email-value">{userEmail}</span>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
-      <br/>
-      <div className="user-info">
-        <div className="role-badge">
-          {getRoleDisplayName(userRole)}
-        </div>
-        {/* ADDED: Show user type badge for new_users */}
-        {/* {userRole === 'new_user' && userType && (
-          <span className={`user-type-badge ${userType}`} style={{
-            background: userType === 'alumni' ? '#8b5cf6' : '#3b82f6',
-            color: 'white',
-            padding: '2px 8px',
-            borderRadius: '12px',
-            fontSize: '12px',
-            marginLeft: '8px'
-          }}>
-            {userType === 'alumni' ? 'Alumni' : 'Student'}
-          </span>
-        )} */}
-        {userEmail && (
-          <div className="email-display">
-            <span className="email-label">Logged in as:</span>
-            <span className="email-value">{userEmail}</span>
           </div>
-        )}
-        {/* REMOVED: Menu button from here */}
-      </div>
-    </div>
-  </div>
-</div>
+        </div>
 
         {/* Stats Grid */}
         <div className="stats-section">
@@ -1299,23 +1396,22 @@ export default function RealTimeDashboard() {
           
           <div className="actions-grid">
             {quickActions.map((action) => {
-              const Icon = action.icon;
+              // Get the icon component from the map
+              const IconComponent = iconMap[action.icon] || HelpCircle;
+              
               return (
                 <div 
                   key={action.id} 
                   className="action-item"
                   onClick={() => handleQuickActionClick(action)}
                 >
-                  <div className="action-icon">
-                    <Icon size={24} />
+                  <div className="action-icon" style={{ backgroundColor: action.color + '20', color: action.color }}>
+                    <IconComponent size={24} />
                   </div>
                   <div className="action-content">
                     <h3 className="action-title">{action.title}</h3>
-                    <span className="action-role">
-                      {userRole === 'new_user' 
-                        ? (userType === 'alumni' ? 'Alumni' : 'Student')
-                        : getRoleDisplayName(userRole)
-                      }
+                    <span className="action-role" style={{ backgroundColor: action.color + '20', color: action.color }}>
+                      {action.roleName || getRoleDisplayName(userRole)}
                     </span>
                     <p className="action-description">{action.description}</p>
                   </div>
