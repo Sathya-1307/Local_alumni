@@ -266,6 +266,7 @@ export default function RealTimeDashboard() {
       }
       
       if (email) {
+        setUserEmail(email);
         // Fetch user data from members collection
         const userDataResult = await fetchUserDataFromDB(email);
         
