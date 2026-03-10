@@ -488,9 +488,9 @@ const handleInputBlur = (e) => {
 
 
   export default function AlumniJobRequestForm({ userEmail, onSubmitSuccess }) {
-  // Initialize formData with the email from props
+  // Initialize formData with the email from props OR localStorage
   const [formData, setFormData] = useState({
-    email: userEmail || '', // Use the email from placement portal
+    email: userEmail || localStorage.getItem('userEmail') || '', // 👈 ADD localStorage fallback
     location: '',
     skillset: [],
     company: '',
@@ -529,16 +529,19 @@ const handleInputBlur = (e) => {
 
   // Auto-fill user data when component mounts or email changes
   useEffect(() => {
-    if (userEmail) {
+    const emailToUse = userEmail || localStorage.getItem('userEmail'); // 👈 Use either
+    console.log('📧 AlumniJobRequestForm - Email being used:', emailToUse);
+    
+    if (emailToUse) {
       setFormData(prev => ({
         ...prev,
-        email: userEmail
+        email: emailToUse
       }));
       
       // Automatically fetch user details
-      autoFillUserDetails(userEmail);
+      autoFillUserDetails(emailToUse);
     }
-  }, [userEmail]);
+  }, [userEmail]); // 👈 Still depends on prop
 
   const autoFillUserDetails = async (email) => {
     if (!email) return;
@@ -546,6 +549,7 @@ const handleInputBlur = (e) => {
     setIsAutoFilling(true);
 
     try {
+      console.log('🔍 Auto-filling for email:', email);
       const response = await fetch(`${API_BASE_URL}/api/members/email/${encodeURIComponent(email)}`);
       
       if (!response.ok) {
@@ -558,9 +562,9 @@ const handleInputBlur = (e) => {
         setUserId(data.member._id);
         
         setDisplayData({
-          name: data.member.name || '',
-          contact: data.member.mobile || '',
-          batch: data.member.batch || ''
+          name: data.member.basic?.name || data.member.name || '',
+          contact: data.member.contact_details?.mobile || data.member.mobile || '',
+          batch: data.member.basic?.label || data.member.batch || ''
         });
         
         showToaster("success", "✨ User details auto-filled successfully!");
@@ -579,6 +583,7 @@ const handleInputBlur = (e) => {
     }
   };
 
+  
   const handleChange = (e) => {
     const { name, value, type, checked, files } = e.target;
     setFormData(prev => ({

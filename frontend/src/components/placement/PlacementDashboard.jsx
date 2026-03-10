@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, Building2, Award, Users, ChevronLeft, Check, ArrowLeft, 
   Search, X, Mail, Calendar, DollarSign, Briefcase, User, ChevronRight, 
-  ChevronLeft as ChevronLeftIcon, MoreVertical, Video, GraduationCap
+  ChevronLeft as ChevronLeftIcon, MoreVertical, Video, GraduationCap,
+  LayoutDashboard, Building, Link, Table, MessageSquare, Star,
+  FileText, HelpCircle, BarChart3
 } from 'lucide-react';
 import './PlacementDashboard.css';
 import AdminDashboard from './AdminDashboard';
@@ -20,17 +22,7 @@ import { useNavigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// Decryption function
-const decryptEmail = (encryptedEmail) => {
-  try {
-    return decodeURIComponent(atob(encryptedEmail));
-  } catch (error) {
-    console.error('Error decrypting email:', error);
-    return encryptedEmail;
-  }
-};
-
-// Encryption function
+// Encryption/Decryption functions
 const encryptEmail = (email) => {
   try {
     return btoa(encodeURIComponent(email));
@@ -40,63 +32,51 @@ const encryptEmail = (email) => {
   }
 };
 
-// Extract graduation year from label (e.g., "BE 2027, CSE" -> 2027)
+const decryptEmail = (encryptedEmail) => {
+  try {
+    return decodeURIComponent(atob(encryptedEmail));
+  } catch (error) {
+    console.error('Error decrypting email:', error);
+    return encryptedEmail;
+  }
+};
+
+// Extract graduation year from label
 const extractYearFromLabel = (label) => {
   if (!label) return null;
-  
-  // Pattern to find 4-digit year (1900-2099)
-  const yearMatch = label.match(/\b(19|20)\d{2}\b/);
+  const yearMatch = String(label).match(/\b(19|20)\d{2}\b/);
   return yearMatch ? parseInt(yearMatch[0]) : null;
 };
 
-// Check if user is alumni based on graduation year from label
-const checkIfUserIsAlumni = (memberData) => {
-  console.log('Checking alumni status with member data:', memberData);
-  
-  const currentYear = new Date().getFullYear();
-  console.log('Current year:', currentYear);
-  
-  // Try to get graduation year from label first
-  if (memberData?.label) {
-    const graduationYear = extractYearFromLabel(memberData.label);
-    console.log(`Graduation year from label: ${graduationYear}`);
-    
-    if (graduationYear) {
-      const isAlumni = graduationYear < currentYear;
-      console.log(`Is alumni (from label): ${isAlumni}`);
-      return isAlumni;
-    }
-  }
-  
-  // Fallback to graduationYear field if backend already extracted it
-  if (memberData?.graduationYear) {
-    const graduationYear = parseInt(memberData.graduationYear);
-    const isAlumni = graduationYear < currentYear;
-    console.log(`Is alumni (from graduationYear field): ${isAlumni}`);
-    return isAlumni;
-  }
-  
-  // Last resort: check education_details
-  if (memberData?.education_details && Array.isArray(memberData.education_details)) {
-    console.log('Falling back to education_details');
-    
-    // Get all end years and find the latest
-    const endYears = memberData.education_details
-      .map(edu => edu.end_year ? parseInt(edu.end_year) : null)
-      .filter(year => year !== null);
-    
-    if (endYears.length > 0) {
-      const latestYear = Math.max(...endYears);
-      console.log(`Latest education end year: ${latestYear}`);
-      
-      const isAlumni = latestYear < currentYear;
-      console.log(`Is alumni (from education_details): ${isAlumni}`);
-      return isAlumni;
-    }
-  }
-  
-  console.log('No valid graduation year found - not alumni');
-  return false;
+// Map icon names to Lucide components
+const iconMap = {
+  'Building2': Building2,
+  'Users': Users,
+  'Briefcase': Briefcase,
+  'Mail': Mail,
+  'Calendar': Calendar,
+  'DollarSign': DollarSign,
+  'User': User,
+  'Check': Check,
+  'TrendingUp': TrendingUp,
+  'Award': Award,
+  'Search': Search,
+  'X': X,
+  'ChevronLeft': ChevronLeft,
+  'ChevronRight': ChevronRight,
+  'MoreVertical': MoreVertical,
+  'Video': Video,
+  'GraduationCap': GraduationCap,
+  'ArrowLeft': ArrowLeft,
+  'LayoutDashboard': LayoutDashboard,
+  'Building': Building,
+  'Link': Link,
+  'Table': Table,
+  'MessageSquare': MessageSquare,
+  'Star': Star,
+  'FileText': FileText,
+  'HelpCircle': HelpCircle,
+  'BarChart3': BarChart3
 };
 
 const PlacementDashboard = ({ onBackToHome }) => {
@@ -104,6 +84,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
   const [analyticsData, setAnalyticsData] = useState(null);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [allCompanies, setAllCompanies] = useState([]);
   const [userRole, setUserRole] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -111,16 +92,22 @@ const PlacementDashboard = ({ onBackToHome }) => {
   const [hasRequestedPlacement, setHasRequestedPlacement] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [userData, setUserData] = useState(null); // Store complete user data
+  const [userData, setUserData] = useState(null);
   const [userEducation, setUserEducation] = useState([]);
   const [graduationYear, setGraduationYear] = useState(null);
   const [isAlumni, setIsAlumni] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [isLoadingUser, setIsLoadingUser] = useState(false);
   const [accessMessage, setAccessMessage] = useState('');
+  const [quickActions, setQuickActions] = useState([]);
+  const [userType, setUserType] = useState('');
+  const [roleNames, setRoleNames] = useState([]);
+  const [isCoordinator, setIsCoordinator] = useState(false);
   
   const [currentPage, setCurrentPage] = useState(1);
   const applicationsPerPage = 6;
+  
+  const authInProgress = useRef(false);
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -138,7 +125,124 @@ const PlacementDashboard = ({ onBackToHome }) => {
     };
   }, []);
 
-  // Fetch user data from database to determine alumni status
+  // Function to fetch user permissions from placement auth API
+  const fetchUserPermissions = async (email) => {
+    try {
+      console.log('🔍 Fetching placement permissions for email:', email);
+      const response = await fetch(`${API_BASE_URL}/api/auth/placement?email=${encodeURIComponent(email)}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ Permissions fetched:', data);
+        setUserRole(data.role);
+        setUserType(data.userType);
+        setRoleNames(data.roleNames || []);
+        setIsCoordinator(data.isCoordinator || false);
+        setQuickActions(data.quickActions || []);
+        
+        // Set alumni status based on userType
+        setIsAlumni(data.userType === 'alumni' || data.userType === 'admin' || data.userType === 'placement_coordinator');
+        setAccessDenied(false);
+        
+        return data;
+      } else {
+        console.log('❌ Failed to fetch permissions');
+        return null;
+      }
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+      return null;
+    }
+  };
+
+  // Handle email from URL
+  useEffect(() => {
+    // Prevent duplicate authentication calls
+    if (authInProgress.current) return;
+    authInProgress.current = true;
+    
+    const getEmailAndAuthenticate = async () => {
+      setAuthLoading(true);
+      console.log('📍 Starting placement authentication process...');
+      
+      const params = new URLSearchParams(window.location.search);
+      const encryptedEmailFromUrl = params.get("email");
+      
+      let email = '';
+      
+      if (encryptedEmailFromUrl) {
+        try {
+          // Decrypt the email from URL
+          const decryptedEmail = decryptEmail(decodeURIComponent(encryptedEmailFromUrl));
+          if (decryptedEmail && decryptedEmail.includes('@')) {
+            email = decryptedEmail;
+            localStorage.setItem('userEmail', email);
+            console.log('✅ User email decrypted from URL:', email);
+          }
+        } catch (error) {
+          console.error('Error decrypting email from URL:', error);
+          // Fallback to atob
+          try {
+            const fallbackEmail = atob(encryptedEmailFromUrl);
+            email = fallbackEmail;
+            localStorage.setItem('userEmail', email);
+          } catch (fallbackError) {
+            console.error('Fallback decryption failed:', fallbackError);
+          }
+        }
+      } else {
+        // Get email from localStorage
+        email = localStorage.getItem('userEmail') || '';
+        console.log('📧 Using email from localStorage:', email);
+      }
+      
+      if (email) {
+        setUserEmail(email);
+        
+        // Fetch permissions from placement auth API
+        const permissionsData = await fetchUserPermissions(email);
+        
+        if (permissionsData) {
+          // Check if user has placement access (alumni, admin, coordinator)
+          if (permissionsData.userType === 'alumni' || 
+              permissionsData.userType === 'admin' || 
+              permissionsData.userType === 'placement_coordinator') {
+            
+            setView('dashboard');
+            await fetchDashboardData();
+            await checkPlacementRequestStatus(email);
+          } else {
+            // User doesn't have placement access (student, etc.)
+            setAccessDenied(true);
+            setAccessMessage(`You are a ${permissionsData.userType || 'student'}. Only alumni, placement coordinators, and admins can access the placement portal.`);
+          }
+        } else {
+          // Fallback to old method if API fails
+          console.log('⚠️ Falling back to manual user type determination');
+          await fetchUserDataFromDB(email);
+        }
+        
+        // Clean URL after successful authentication
+        const newUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      } else {
+        // No email found, show email entry
+        console.log('❌ No email found, showing email entry');
+        setView('email-entry');
+      }
+      
+      setAuthLoading(false);
+      authInProgress.current = false;
+    };
+
+    getEmailAndAuthenticate();
+    
+    return () => {
+      authInProgress.current = false;
+    };
+  }, []);
+
+  // Fetch user data from database (fallback method)
   const fetchUserDataFromDB = async (email) => {
     setIsLoadingUser(true);
     setAccessDenied(false);
@@ -152,60 +256,40 @@ const PlacementDashboard = ({ onBackToHome }) => {
       console.log('User data response:', data);
       
       if (data.success && data.member) {
-        // Store complete user data
         setUserData(data.member);
         
-        // Store education details
         const education = data.member.education_details || [];
         setUserEducation(education);
         
-        // Extract graduation year from label
         const extractedYear = extractYearFromLabel(data.member.label || data.member.batch);
         setGraduationYear(extractedYear);
         
         console.log('Extracted graduation year:', extractedYear);
-        console.log('Education details:', education);
         
-        // Check if user is alumni using label first
-        const alumniStatus = checkIfUserIsAlumni(data.member);
+        // Check if user is alumni using label
+        const currentYear = new Date().getFullYear();
+        const alumniStatus = extractedYear ? extractedYear < currentYear : false;
         setIsAlumni(alumniStatus);
         
         if (alumniStatus) {
           setUserRole('alumni');
           await checkPlacementRequestStatus(email);
           setAccessDenied(false);
+          setView('dashboard');
+          await fetchDashboardData();
           console.log('Access GRANTED - User is alumni');
         } else {
-          // Not an alumni - deny access with specific message
           setUserRole('non-alumni');
           setAccessDenied(true);
-          
-          const currentYear = new Date().getFullYear();
           
           if (extractedYear) {
             if (extractedYear > currentYear) {
               setAccessMessage(`You are a current student (expected graduation ${extractedYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
             } else if (extractedYear === currentYear) {
               setAccessMessage(`You are a current year student (graduating ${extractedYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
-            } else {
-              setAccessMessage(`Your graduation year (${extractedYear}) is before ${currentYear}, but no valid education record found.`);
             }
           } else {
-            // Check education_details for message
-            const endYears = education.map(edu => edu.end_year).filter(Boolean);
-            const latestYear = endYears.length > 0 ? Math.max(...endYears.map(y => parseInt(y))) : null;
-            
-            if (latestYear) {
-              if (latestYear > currentYear) {
-                setAccessMessage(`You are a current student (expected graduation ${latestYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
-              } else if (latestYear === currentYear) {
-                setAccessMessage(`You are a current year student (graduating ${latestYear}). Only graduated alumni (graduation year < ${currentYear}) can access.`);
-              } else {
-                setAccessMessage(`No valid graduation year found in label. Only alumni with graduation year < ${currentYear} can access.`);
-              }
-            } else {
-              setAccessMessage(`No valid graduation year found. Only alumni with graduation year < ${currentYear} can access.`);
-            }
+            setAccessMessage(`No valid graduation year found. Only alumni with graduation year < ${currentYear} can access.`);
           }
           
           console.log('Access DENIED - User is not alumni');
@@ -213,7 +297,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
         
         return alumniStatus;
       } else {
-        // User not found in database
         console.log('User not found in members collection');
         setUserRole('unknown');
         setAccessDenied(true);
@@ -228,110 +311,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
       return false;
     } finally {
       setIsLoadingUser(false);
-    }
-  };
-
-  // Handle email from URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const emailFromUrl = params.get("email");
-    
-    if (emailFromUrl) {
-      try {
-        // Decrypt email
-        const email = decryptEmail(decodeURIComponent(emailFromUrl));
-        setUserEmail(email);
-        
-        // Check if it's admin or coordinator first (hardcoded emails)
-        if (email === "vsnithyasaminathan143@gmail.com") {
-          setUserRole("admin");
-          setIsAlumni(true);
-          setAccessDenied(false);
-          setView("dashboard");
-          fetchDashboardData();
-        } else if (email === "kanthisaranya@gmail.com") {
-          setUserRole("coordinator");
-          setIsAlumni(true);
-          setAccessDenied(false);
-          setView("dashboard");
-          fetchDashboardData();
-        } else {
-          // For other users, fetch from database to check alumni status
-          fetchUserDataFromDB(email).then((isAlumniUser) => {
-            if (isAlumniUser) {
-              setView("dashboard");
-              fetchDashboardData();
-            }
-          });
-        }
-        
-        // Clean URL after successful authentication
-        const newUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, "", newUrl);
-        
-      } catch (error) {
-        console.error('Error decrypting email from URL:', error);
-        // Fallback to atob for backward compatibility
-        try {
-          const email = atob(emailFromUrl);
-          setUserEmail(email);
-          
-          if (email === "vsnithyasaminathan143@gmail.com") {
-            setUserRole("admin");
-            setIsAlumni(true);
-            setAccessDenied(false);
-          } else if (email === "kanthisaranya@gmail.com") {
-            setUserRole("coordinator");
-            setIsAlumni(true);
-            setAccessDenied(false);
-          } else {
-            // For other users, fetch from database
-            fetchUserDataFromDB(email);
-          }
-          
-          setView("dashboard");
-          fetchDashboardData();
-          
-          const newUrl = window.location.origin + window.location.pathname;
-          window.history.replaceState({}, "", newUrl);
-        } catch (fallbackError) {
-          console.error('Fallback decryption also failed:', fallbackError);
-        }
-      }
-    } 
-  }, []);
-
-  // Handle email submit from form
-  const handleEmailSubmit = async (e) => {
-    e.preventDefault();
-    if (!emailInput.trim()) {
-      alert('Please enter your email address');
-      return;
-    }
-
-    const email = emailInput.trim().toLowerCase();
-    setUserEmail(email);
-
-    // Check for admin/coordinator first
-    if (email === 'vsnithyasaminathan143@gmail.com') {
-      setUserRole('admin');
-      setIsAlumni(true);
-      setAccessDenied(false);
-      setView('dashboard');
-      fetchDashboardData();
-    } else if (email === 'kanthisaranya@gmail.com') {
-      setUserRole('coordinator');
-      setIsAlumni(true);
-      setAccessDenied(false);
-      setView('dashboard');
-      fetchDashboardData();
-    } else {
-      // For other users, fetch from database
-      const isAlumniUser = await fetchUserDataFromDB(email);
-      if (isAlumniUser) {
-        setView('dashboard');
-        fetchDashboardData();
-      }
     }
   };
 
@@ -476,11 +455,11 @@ const PlacementDashboard = ({ onBackToHome }) => {
   };
 
   useEffect(() => {
-    if (view === 'dashboard' && isAlumni) {
+    if (view === 'dashboard' && (isAlumni || userType === 'admin' || userType === 'placement_coordinator')) {
       console.log('Auto-refreshing dashboard data...');
       fetchDashboardData();
     }
-  }, [view, dataVersion, isAlumni]);
+  }, [view, dataVersion, isAlumni, userType]);
 
   const forceDataRefresh = () => {
     setDataVersion(prev => prev + 1);
@@ -528,113 +507,52 @@ const PlacementDashboard = ({ onBackToHome }) => {
     return colors[status] || colors.pending;
   };
 
-  // Get available actions based on user role
-  const getAvailableActions = () => {
-    if (userRole === 'admin') {
-      return [
-        { 
-          id: 'all-companies', 
-          icon: '📋', 
-          title: 'company onboarding', 
-          badge: 'View',
-          description: 'View all registered companies in table format with complete details and filters.'
-        },
-        { 
-          id: 'interview-results-view', 
-          icon: '📊', 
-          title: 'Interview Results', 
-          badge: 'View Only',
-          description: 'View interview results and alumni selection status (Read-only mode).'
-        },
-        { 
-          id: 'alumni-feedback-display', 
-          icon: '💬', 
-          title: 'Alumni Feedbacks', 
-          badge: 'View',
-          description: 'View feedback from alumni with name, batch and feedback details.'
-        },
-        { 
-          id: 'alumni-job-requests', 
-          icon: '📋', 
-          title: 'Alumni Opportunity Requests', 
-          badge: 'View',
-          description: 'View alumni placement requests with search and filter options.'
-        },
-      ];
-    } else if (userRole === 'coordinator') {
-      return [
-        { 
-          id: 'add-company', 
-          icon: '🏢', 
-          title: 'Company onboarding', 
-          badge: 'Register',
-          description: 'Register companies, roles, skills required, CTC details and hiring process.'
-        },
-        { 
-          id: 'admin-dashboard', 
-          icon: '⚙️', 
-          title: 'Coordinator Dashboard', 
-          badge: 'Management',
-          description: 'Comprehensive admin panel to manage all placement activities, data and analytics.'
-        },
-        { 
-          id: 'interview-results', 
-          icon: '📈', 
-          title: 'Interview Results', 
-          badge: 'Manage',
-          description: 'View and manage interview outcomes, candidate selection results and feedback.'
-        },
-        { 
-          id: 'placement-feedback', 
-          icon: '⭐', 
-          title: 'Coordinator Feedback', 
-          badge: 'Rating',
-          description: 'Capture detailed feedback on the final placement outcome and student experience.'
-        }
-      ];
-    } else if (userRole === 'alumni') {
-      if (!hasRequestedPlacement) {
-        return [
-          { 
-            id: 'placement-data-request', 
-            icon: '📊', 
-            title: 'Alumni Opportunity Requests', 
-            badge: 'Required',
-            description: 'Share your preferred locations, companies, skills and requirements to get started.'
-          }
-        ];
+  // Handle email submit from form
+  const handleEmailSubmit = async (e) => {
+    e.preventDefault();
+    if (!emailInput.trim()) {
+      alert('Please enter your email address');
+      return;
+    }
+
+    const email = emailInput.trim().toLowerCase();
+    setUserEmail(email);
+    
+    // Fetch permissions
+    const permissionsData = await fetchUserPermissions(email);
+    
+    if (permissionsData) {
+      if (permissionsData.userType === 'alumni' || 
+          permissionsData.userType === 'admin' || 
+          permissionsData.userType === 'placement_coordinator') {
+        setView('dashboard');
+        await fetchDashboardData();
+        await checkPlacementRequestStatus(email);
       } else {
-        return [
-          { 
-            id: 'placement-data-request', 
-            icon: '✅', 
-            title: 'Alumni Opportunity Requests', 
-            badge: 'Completed',
-            description: 'View or update your placement request. Click to make changes.',
-            completed: true
-          },
-          { 
-            id: 'assigned-companies', 
-            icon: '📋', 
-            title: 'Assigned Companies', 
-            badge: 'View',
-            description: 'View companies assigned to you for placement activities and track your progress.'
-          },
-          { 
-            id: 'requester-feedback', 
-            icon: '💬', 
-            title: 'Requester Feedback', 
-            badge: 'Feedback',
-            description: 'Provide feedback about the placement data request process and your experience.'
-          }
-        ];
+        setAccessDenied(true);
+        setAccessMessage(`You are a ${permissionsData.userType || 'student'}. Only alumni, placement coordinators, and admins can access the placement portal.`);
+      }
+    } else {
+      // Fallback to old method
+      const isAlumniUser = await fetchUserDataFromDB(email);
+      if (isAlumniUser) {
+        setView('dashboard');
+        await fetchDashboardData();
       }
     }
-    return [];
   };
 
+  // ✅ FIXED: Pure database-driven navigation
   const handleQuickAction = (action) => {
-    setView(action);
+    console.log('Quick action clicked:', action);
+    
+    if (action.path) {
+      // Navigate using path from database
+      navigate(`${action.path}?email=${encodeURIComponent(userEmail)}`);
+    } else if (action.id) {
+      // Fallback - shouldn't happen if backend sends path
+      console.warn('No path in action, using ID:', action.id);
+    }
   };
 
   const handleBackToDashboard = () => {
@@ -708,20 +626,20 @@ const PlacementDashboard = ({ onBackToHome }) => {
             </h2>
 
             <p style={{
-              fontSize: '18px',
+              fontSize: '16px',
               color: '#ef4444',
               marginBottom: '20px',
               fontWeight: '500'
             }}>
-              You are not an alumni
+              You don't have permission to access the Placement Portal
             </p>
 
             <p style={{
               fontSize: '16px',
               color: '#64748b',
-              marginBottom: '20px'
+              marginBottom: '30px'
             }}>
-              {accessMessage || `This dashboard is only accessible to alumni who have already graduated (graduation year < ${currentYear}).`}
+              {accessMessage || `Only alumni (graduated), placement coordinators, and admins can access.`}
             </p>
 
             {userData && (
@@ -736,42 +654,11 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 <div style={{ marginBottom: '10px', padding: '8px', background: 'white', borderRadius: '6px' }}>
                   <div><strong>Name:</strong> {userData.name || 'N/A'}</div>
                   <div><strong>Batch/Label:</strong> {userData.batch || userData.label || 'N/A'}</div>
+                  <div><strong>User Type:</strong> {userType || 'unknown'}</div>
                   {graduationYear && (
                     <div><strong>Graduation Year:</strong> {graduationYear}</div>
                   )}
                 </div>
-                
-                {userEducation.length > 0 && (
-                  <>
-                    <p style={{ fontWeight: '600', marginTop: '10px', marginBottom: '10px', color: '#374151' }}>Education Details:</p>
-                    {userEducation.map((edu, index) => {
-                      const endYear = edu.end_year ? parseInt(edu.end_year) : null;
-                      const isEligible = endYear && endYear < currentYear;
-                      
-                      return (
-                        <div key={index} style={{ 
-                          marginBottom: '8px',
-                          padding: '8px',
-                          background: 'white',
-                          borderRadius: '6px',
-                          fontSize: '14px',
-                          borderLeft: isEligible ? '4px solid #10b981' : '4px solid #ef4444'
-                        }}>
-                          <div><strong>Course:</strong> {edu.course || 'N/A'}</div>
-                          <div><strong>Stream:</strong> {edu.stream || 'N/A'}</div>
-                          <div><strong>End Year:</strong> {edu.end_year || 'N/A'}</div>
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-                
-                <p style={{ marginTop: '10px', fontSize: '13px', color: '#6b7280' }}>
-                  Current Year: {currentYear}
-                </p>
-                <p style={{ marginTop: '5px', fontSize: '13px', color: '#ef4444', fontWeight: '500' }}>
-                  You need graduation year less than {currentYear} to access.
-                </p>
               </div>
             )}
 
@@ -793,14 +680,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
               }}
             >
               Try Another Email
@@ -872,7 +751,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
               background: '#fee2e2',
               borderRadius: '8px'
             }}>
-              ⚠️ Only alumni with graduation year BEFORE {currentYear} can access
+              ⚠️ Only alumni, placement coordinators, and admins can access
             </p>
 
             <form onSubmit={handleEmailSubmit}>
@@ -906,16 +785,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
                     opacity: isLoadingUser ? 0.7 : 1,
                     cursor: isLoadingUser ? 'not-allowed' : 'text'
                   }}
-                  onFocus={(e) => {
-                    if (!isLoadingUser) {
-                      e.target.style.borderColor = '#7c3aed';
-                      e.target.style.boxShadow = '0 0 0 4px rgba(124, 58, 237, 0.1)';
-                    }
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#e2e8f0';
-                    e.target.style.boxShadow = 'none';
-                  }}
                   autoComplete="email"
                 />
               </div>
@@ -936,18 +805,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
                   transition: 'all 0.3s ease',
                   boxShadow: isLoadingUser ? 'none' : '0 4px 15px rgba(102, 126, 234, 0.4)'
                 }}
-                onMouseEnter={(e) => {
-                  if (!isLoadingUser) {
-                    e.target.style.transform = 'translateY(-2px)';
-                    e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isLoadingUser) {
-                    e.target.style.transform = 'translateY(0)';
-                    e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
-                  }
-                }}
               >
                 {isLoadingUser ? 'Checking...' : 'Continue to Dashboard'}
               </button>
@@ -966,7 +823,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 color: '#7c3aed',
                 marginBottom: '8px'
               }}>
-                Alumni Access Requirements:
+                Access Levels:
               </p>
               <ul style={{
                 fontSize: '13px',
@@ -974,10 +831,10 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 paddingLeft: '20px',
                 margin: 0
               }}>
-                <li style={{ marginBottom: '4px' }}>✓ Must have graduation year BEFORE {currentYear}</li>
-                <li style={{ marginBottom: '4px' }}>✓ Access to placement opportunities</li>
-                <li style={{ marginBottom: '4px' }}>✓ Submit job requests</li>
-                <li>✓ View assigned companies</li>
+                <li style={{ marginBottom: '4px' }}>👑 <strong>Admin</strong> - Full access to all modules (view only)</li>
+                <li style={{ marginBottom: '4px' }}>⚙️ <strong>Placement Coordinator</strong> - Manage all placement activities</li>
+                <li style={{ marginBottom: '4px' }}>🎓 <strong>Alumni</strong> - Submit job requests, view assigned companies</li>
+                <li>❌ <strong>Student</strong> - No access to placement portal</li>
               </ul>
             </div>
           </div>
@@ -988,13 +845,30 @@ const PlacementDashboard = ({ onBackToHome }) => {
 
   const DashboardView = () => {
     const maxApplications = Math.max(...(analyticsData?.yearWiseData.map(d => d.applications) || [200]));
-    const availableActions = getAvailableActions();
+    
+    // Get actions from API (quickActions) only - NO FALLBACK
+    const availableActions = quickActions;
 
     const totalApplications = analyticsData?.applications.length || 0;
     const totalPages = Math.ceil(totalApplications / applicationsPerPage);
     const startIndex = (currentPage - 1) * applicationsPerPage;
     const endIndex = startIndex + applicationsPerPage;
     const displayedApplications = analyticsData?.applications.slice(startIndex, endIndex) || [];
+
+    if (authLoading) {
+      return (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '400px',
+          fontSize: '18px',
+          color: '#7c3aed'
+        }}>
+          Authenticating...
+        </div>
+      );
+    }
 
     if (loading) {
       return (
@@ -1041,23 +915,18 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 <span style={{ 
                   marginLeft: '8px',
                   padding: '2px 8px',
-                  background: '#7c3aed',
+                  background: userType === 'admin' ? '#ef4444' : (userType === 'placement_coordinator' ? '#8b5cf6' : '#7c3aed'),
                   color: 'white',
                   borderRadius: '12px',
                   fontSize: '12px',
                   textTransform: 'capitalize'
                 }}>
-                  Alumni
+                  {userType === 'placement_coordinator' ? 'Coordinator' : userType}
                 </span>
               </p>
-              {graduationYear && (
+              {roleNames.length > 0 && (
                 <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                  Graduation Year: {graduationYear}
-                </p>
-              )}
-              {userEducation.length > 0 && !graduationYear && (
-                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                  Education: {userEducation.map(edu => edu.end_year).filter(Boolean).join(', ')}
+                  Roles: {roleNames.join(', ')}
                 </p>
               )}
             </div>
@@ -1112,12 +981,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
                   <div className="analytics-icon" style={{ color: '#f59e0b' }}>⏳</div>
                   <div className="analytics-value">{analyticsData.overview.waitingForApproval}</div>
                   <div className="analytics-label">Waiting for Approval</div>
-                  <div className="analytics-subtext">
-                    {analyticsData.placementRequests?.length > 0 ? 
-                      `${analyticsData.overview.waitingForApproval} of ${analyticsData.placementRequests.length} pending` : 
-                      'No placement requests'
-                    }
-                  </div>
                 </div>
                 
                 <div className="analytics-card">
@@ -1139,18 +1002,9 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 </div>
                 
                 <div className="analytics-card">
-                  <TrendingUp className="analytics-icon" size={24} />
-                  <div className="analytics-value">{analyticsData.overview.pending}</div>
-                  <div className="analytics-label">Not Applied</div>
-                </div>
-                
-                <div className="analytics-card">
                   <Award className="analytics-icon" size={24} />
                   <div className="analytics-value">{analyticsData.overview.successRate}%</div>
                   <div className="analytics-label">Success Rate</div>
-                  <div className="analytics-subtext">
-                    Based on completed applications
-                  </div>
                 </div>
               </div>
             </div>
@@ -1185,17 +1039,9 @@ const PlacementDashboard = ({ onBackToHome }) => {
                               className="bar-unique"
                               style={{
                                 height: `${heightPerc}%`,
-                                background: barColors[index % barColors.length],
-                                animationDelay: `${index * 0.15}s`
+                                background: barColors[index % barColors.length]
                               }}
-                            >
-                              <div className="bar-glow"></div>
-                              <div className="bar-particles">
-                                <span className="particle"></span>
-                                <span className="particle"></span>
-                                <span className="particle"></span>
-                              </div>
-                            </div>
+                            />
                           </div>
                         </div>
                         <div className="bar-year-unique">{yearData.year}</div>
@@ -1233,11 +1079,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
                   <div 
                     key={company.company_id} 
                     className={`recruiter-card ${company.is_alumni_company ? 'alumni-company' : ''}`}
-                    style={company.is_alumni_company ? {
-                      background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(124, 58, 237, 0.05) 100%)',
-                      border: '2px solid #7c3aed',
-                      position: 'relative'
-                    } : {}}
                   >
                     {company.is_alumni_company && (
                       <div style={{
@@ -1249,26 +1090,15 @@ const PlacementDashboard = ({ onBackToHome }) => {
                         fontSize: '11px',
                         fontWeight: '600',
                         padding: '4px 8px',
-                        borderRadius: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)'
+                        borderRadius: '6px'
                       }}>
-                        <span>🎓</span>
-                        Alumni
+                        <span>🎓</span> Alumni
                       </div>
                     )}
-                    <div className="recruiter-logo" style={company.is_alumni_company ? {
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white'
-                    } : {}}>
+                    <div className="recruiter-logo">
                       {company.is_alumni_company ? '🎓' : '🏢'}
                     </div>
-                    <h4 className="recruiter-name" style={company.is_alumni_company ? {
-                      color: '#7c3aed',
-                      fontWeight: '600'
-                    } : {}}>
+                    <h4 className="recruiter-name">
                       {company.name || company.company_name}
                     </h4>
                   </div>
@@ -1277,43 +1107,36 @@ const PlacementDashboard = ({ onBackToHome }) => {
             </div>
           )}
 
-          {userRole === 'alumni' && !hasRequestedPlacement && (
-            <div style={{
-              padding: '40px',
-              textAlign: 'center',
-              background: 'rgba(139, 92, 246, 0.1)',
-              borderRadius: '12px',
-              margin: '20px 0'
-            }}>
-              <h3 style={{ color: '#7c3aed', marginBottom: '10px' }}>Get Started with Placement Process</h3>
-              <p style={{ color: '#64748b', marginBottom: '20px' }}>
-                Submit your placement data request below to get access to assigned companies and provide feedback.
-              </p>
-            </div>
-          )}
-
+          {/* Quick Actions from API - PURE DATABASE! */}
           <div className="quick-actions-section">
             <h3 className="section-title">
-              {userRole === 'alumni' && !hasRequestedPlacement ? 'Get Started' : 'Quick Actions'}
+              {userType === 'alumni' && !hasRequestedPlacement ? 'Get Started' : 'Quick Actions'}
             </h3>
             <div className="quick-actions-grid">
-              {availableActions.map((action) => (
-                <div 
-                  key={action.id} 
-                  className={`action-card ${action.completed ? 'action-card-completed' : ''}`}
-                  onClick={() => handleQuickAction(action.id)}
-                >
-                  <div className="action-icon">{action.icon}</div>
-                  <h4 className="action-title">{action.title}</h4>
-                  <span className={`action-badge ${action.completed ? 'action-badge-completed' : ''}`}>
-                    {action.badge}
-                  </span>
-                  <p className="action-text">{action.description}</p>
-                </div>
-              ))}
+              {availableActions.map((action, index) => {
+                const IconComponent = iconMap[action.icon] || HelpCircle;
+                
+                return (
+                  <div 
+                    key={action.id ? `${action.id}-${index}` : `action-${index}`}
+                    className={`action-card ${action.completed ? 'action-card-completed' : ''}`}
+                    onClick={() => handleQuickAction(action)}
+                  >
+                    <div className="action-icon">
+                      <IconComponent size={24} />
+                    </div>
+                    <h4 className="action-title">{action.title}</h4>
+                    <span className={`action-badge ${action.completed ? 'action-badge-completed' : ''}`}>
+                      {action.badge || 'Access'}
+                    </span>
+                    <p className="action-text">{action.description}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
+          {/* Recent Applications */}
           <div className="applications-section">
             <div className="section-header">
               <h3 className="section-title">
@@ -1437,121 +1260,146 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 </button>
               </div>
             )}
-            
-            <div className="pagination-info">
-              Showing {displayedApplications.length} of {totalApplications} applications (Page {currentPage} of {totalPages})
-            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderCurrentView = () => {
-    // If access denied, show access denied view
-    if (accessDenied) {
-      return <AccessDeniedView />;
-    }
+const renderCurrentView = () => {
+  if (authLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '400px'
+      }}>
+        <div className="dashboard-spinner"></div>
+        <p style={{ marginLeft: '10px' }}>Authenticating...</p>
+      </div>
+    );
+  }
 
-    // If not alumni and not admin/coordinator, show email entry
-    if (view === 'email-entry') {
-      return <EmailEntryView />;
-    }
+  if (accessDenied) {
+    return <AccessDeniedView />;
+  }
 
-    // For alumni, show dashboard or other views
-    if (isAlumni || userRole === 'admin' || userRole === 'coordinator') {
-      switch (view) {
-        case 'dashboard':
-          return <DashboardView />;
-        case 'admin-dashboard':
-          return (userRole === 'coordinator') ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <AdminDashboard />
-            </div>
-          ) : <DashboardView />;
-        case 'assigned-companies':
-          return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <AssignedCompanies userEmail={userEmail} />
-            </div>
-          ) : <DashboardView />;
-        case 'add-company':
-          return (userRole === 'coordinator') ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
-            </div>
-          ) : <DashboardView />;
-        case 'all-companies':
-          return userRole === 'admin' ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <Companies />
-            </div>
-          ) : <DashboardView />;
-        case 'interview-results':
-          return (userRole === 'coordinator') ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <InterviewResults />
-            </div>
-          ) : <DashboardView />;
-        case 'interview-results-view':
-          return userRole === 'admin' ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
-            </div>
-          ) : <DashboardView />;
-        case 'alumni-feedback-display':
-          return userRole === 'admin' ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <AlumniFeedbackDisplay />
-            </div>
-          ) : <DashboardView />;
-        case 'alumni-job-requests':
-          return userRole === 'admin' ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
-            </div>
-          ) : <DashboardView />;
-        case 'placement-feedback':
-          return (userRole === 'coordinator') ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <PlacementFeedbackForm />
-            </div>
-          ) : <DashboardView />;
-        case 'placement-data-request':
-          return (userRole === 'alumni') ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <PlacementDataRequestForm 
-                userEmail={userEmail} 
-                onSubmitSuccess={handlePlacementRequestSubmit}
-              />
-            </div>
-          ) : <DashboardView />;
-        case 'requester-feedback':
-          return ((userRole === 'alumni' && hasRequestedPlacement)) ? (
-            <div className="component-wrapper">
-              <SimpleBackButton />
-              <RequesterFeedbackForm userEmail={userEmail} />
-            </div>
-          ) : <DashboardView />;
-        default:
-          return <DashboardView />;
-      }
-    }
-
-    // Default fallback
+  if (view === 'email-entry') {
     return <EmailEntryView />;
-  };
+  }
 
+  // Get email from state or localStorage
+  const currentEmail = userEmail || localStorage.getItem('userEmail');
+  console.log('📧 Current email for components:', currentEmail);
+
+  if (userType === 'admin' || userType === 'placement_coordinator' || userType === 'alumni') {
+    switch (view) {
+      case 'dashboard':
+        return <DashboardView />;
+        
+      case 'admin-dashboard':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <AdminDashboard />
+          </div>
+        );
+        
+      case 'assigned-companies':
+     
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <AssignedCompanies userEmail={currentEmail} />
+          </div>
+        );
+        
+      case 'add-company':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
+          </div>
+        );
+        
+      case 'all-companies':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <Companies />
+          </div>
+        );
+        
+      case 'interview-results':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <InterviewResults />
+          </div>
+        );
+        
+      case 'interview-results-view':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
+          </div>
+        );
+        
+      case 'alumni-feedback-display':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <AlumniFeedbackDisplay />
+          </div>
+        );
+        
+      case 'alumni-job-requests':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
+          </div>
+        );
+        
+      case 'placement-feedback':
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <PlacementFeedbackForm />
+          </div>
+        );
+        
+      case 'placement-data-request':
+       
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <PlacementDataRequestForm 
+              userEmail={currentEmail}
+              onSubmitSuccess={handlePlacementRequestSubmit}
+            />
+          </div>
+        );
+        
+      case 'requester-feedback':
+  
+        return (
+          <div className="component-wrapper">
+            <SimpleBackButton />
+            <RequesterFeedbackForm userEmail={currentEmail} />
+          </div>
+        );
+        
+      default:
+        return <DashboardView />;
+    }
+  }
+
+  return <EmailEntryView />;
+};
+  
   return (
     <div className="dashboard-wrapper">
       <div className="animated-bg">
@@ -1566,4 +1414,5 @@ const PlacementDashboard = ({ onBackToHome }) => {
     </div>
   );
 };
+
 export default PlacementDashboard;

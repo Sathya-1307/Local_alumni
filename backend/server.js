@@ -71,7 +71,7 @@ const feedbackRoutes = require('./routes/feedbackRoutes');
 const memberRoutes = require('./routes/memberRoutes');
 const jobRequestRoutes = require('./routes/jobRequests');
 const companyMappingRoutes = require('./routes/companyMapping');
-
+const authPlacementRoutes = require('./routes/authPlacement');
 // ========== IMPORT ADMIN ROUTES ==========
 const adminRoutes = require('./routes/admin'); // Assuming your admin routes file is in ./routes/admin.js
 
@@ -195,7 +195,7 @@ app.use("/api/job-requests", jobRequestRoutes);
 app.use("/api/placement-requests", jobRequestRoutes);
 app.use("/api/company-mapping", companyMappingRoutes);
 app.use("/api/requester-feedback", requesterFeedbackRoutes);
-
+app.use('/api/auth/placement', authPlacementRoutes);
 // ========== ADMIN ROUTES ==========
 // Mount admin routes under /api/admin prefix
 app.use('/api/admin', adminRoutes);

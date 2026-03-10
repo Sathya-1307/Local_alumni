@@ -2,8 +2,13 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./RequesterFeedbackForm.css";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 const RequesterFeedbackForm = ({ userEmail }) => {
+  // ✅ SAME PATTERN - email from prop or localStorage
+  const email = userEmail || localStorage.getItem('userEmail');
+  
   const [feedback, setFeedback] = useState("");
   const [autoData, setAutoData] = useState({
     userId: "",
@@ -15,18 +20,21 @@ const RequesterFeedbackForm = ({ userEmail }) => {
   const [loading, setLoading] = useState(false);
   const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState(false);
 
-  // Fetch user details and check request on component mount
+  // ✅ SAME PATTERN - Auto-fetch when email changes
   useEffect(() => {
-    if (userEmail) {
+    console.log('⚡ RequesterFeedbackForm useEffect running with email:', email);
+    if (email) {
       fetchUserDetailsAndRequest();
       checkIfFeedbackSubmitted();
+    } else {
+      console.log('❌ No email provided');
     }
-  }, [userEmail]);
+  }, [email]);
 
   // Check if user has already submitted feedback
   const checkIfFeedbackSubmitted = async () => {
     try {
-      const encodedEmail = encodeURIComponent(userEmail);
+      const encodedEmail = encodeURIComponent(email);
       const userRes = await axios.get(
         `${API_BASE_URL}/api/members/email/${encodedEmail}`
       );
@@ -53,7 +61,7 @@ const RequesterFeedbackForm = ({ userEmail }) => {
     try {
       setLoading(true);
       
-      const encodedEmail = encodeURIComponent(userEmail);
+      const encodedEmail = encodeURIComponent(email);
       
       // Fetch user details
       const userRes = await axios.get(
@@ -229,7 +237,7 @@ const RequesterFeedbackForm = ({ userEmail }) => {
               </label>
               <input
                 type="email"
-                value={userEmail}
+                value={email}
                 disabled
                 className="feedback-input-disabled"
               />

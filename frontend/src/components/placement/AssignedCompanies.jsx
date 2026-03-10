@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const AssignedCompanies = ({ userEmail }) => {
+  const email = userEmail || localStorage.getItem('userEmail');
+  
   const [alumniInfo, setAlumniInfo] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -19,11 +21,13 @@ const AssignedCompanies = ({ userEmail }) => {
 
   // Auto-fetch when component mounts with userEmail prop
   useEffect(() => {
-    if (userEmail) {
-      fetchAlumniId(userEmail);
+    console.log('⚡ useEffect running with email:', email);
+    if (email) {
+      fetchAlumniId(email);
+    } else {
+      setError('No email provided');
     }
-  }, [userEmail]);
-
+  }, [email]);  
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
