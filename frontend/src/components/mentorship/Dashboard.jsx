@@ -563,10 +563,10 @@ export default function RealTimeDashboard() {
     return () => {
       console.log('🧹 Cleaning up intervals...');
       clearTimeout(timeoutId);
-      Object.values(timers.current).forEach(timer => clearInterval(timer));
+      Object.values(timers).forEach(timer => clearInterval(timer));
       dataFetchInProgress.current = false;
     };
-  }, [userEmail, userRole, authLoading]); // Add authLoading to dependencies
+  }, [userEmail, userRole, authLoading, fetchDashboardStats, fetchPhaseStats, fetchAllMentors, fetchAllMentees, fetchAllAssignments, fetchAllMeetings, fetchAllFeedbacks]); // Add all fetch functions to dependencies
 
   // Use a ref for timers to avoid dependency issues
   const timersRef = useRef(timers);
@@ -761,8 +761,14 @@ export default function RealTimeDashboard() {
     mentor.name.toLowerCase().includes(searchMentor.toLowerCase())
   );
 
+  // FIXED: Updated handleQuickActionClick to properly persist email in localStorage
   const handleQuickActionClick = (action) => {
     if (userEmail) {
+      // Store email in localStorage for persistence across page refreshes
+      localStorage.setItem('formUserEmail', userEmail);
+      localStorage.setItem('lastVisitedForm', action.path);
+      
+      // Navigate with email in URL
       navigate(`${action.path}?email=${encodeURIComponent(userEmail)}`);
     } else {
       navigate(action.path);
