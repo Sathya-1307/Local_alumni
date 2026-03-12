@@ -150,11 +150,70 @@ const determineUserType = (user) => {
   return 'student';
 };
 
+// ========== NEW: Check if user is admin by label (based on placement code) ==========
+const isAdminByLabel = (user) => {
+  if (!user) return false;
+  
+  // Check in basic.label first
+  if (user.basic && user.basic.label) {
+    const labelLower = String(user.basic.label).toLowerCase();
+    if (labelLower.includes('admin') || labelLower === 'administrator') {
+      console.log('👑 Admin detected by basic.label:', user.basic.label);
+      return true;
+    }
+  }
+  
+  // Also check root level label as fallback
+  if (user.label) {
+    const labelLower = String(user.label).toLowerCase();
+    if (labelLower.includes('admin') || labelLower === 'administrator') {
+      console.log('👑 Admin detected by root label:', user.label);
+      return true;
+    }
+  }
+  
+  return false;
+};
+
 // Helper function to check if a role is a coordinator role
 const isCoordinatorRole = (roleName) => {
   if (!roleName) return false;
   const coordinatorKeywords = ['coordinator', 'Coordinator'];
   return coordinatorKeywords.some(keyword => roleName.includes(keyword));
+};
+
+// FIXED: Strict function to check ONLY for mentorship coordinator, not any coordinator
+const isMentorshipCoordinatorRole = (roleName) => {
+  if (!roleName) return false;
+  
+  // Convert to lowercase for case-insensitive comparison
+  const lowerRoleName = roleName.toLowerCase();
+  
+  // STRICT CHECK: Must contain BOTH "mentorship" AND "coordinator"
+  // This ensures it's specifically a mentorship coordinator, not any other type of coordinator
+  const hasMentorship = lowerRoleName.includes('mentorship');
+  const hasCoordinator = lowerRoleName.includes('coordinator');
+  
+  // Also check for exact variations
+  const exactMatches = [
+    'mentorship coordinator',
+    'mentorship-coordinator',
+    'mentorship_coordinator'
+  ];
+  
+  const isExactMatch = exactMatches.some(match => 
+    lowerRoleName === match || lowerRoleName.includes(match)
+  );
+  
+  const result = (hasMentorship && hasCoordinator) || isExactMatch;
+  
+  if (result) {
+    console.log(`✅ Role "${roleName}" IS a mentorship coordinator`);
+  } else {
+    console.log(`❌ Role "${roleName}" is NOT a mentorship coordinator`);
+  }
+  
+  return result;
 };
 
 // Helper function to get default roleId based on user type
@@ -614,7 +673,8 @@ router.get('/', async (req, res) => {
     
     console.log('✅ User found with ID:', user._id);
     console.log('User name:', user.basic?.name);
-    console.log('User label:', user.label);
+    console.log('User label (basic):', user.basic?.label);
+    console.log('User label (root):', user.label);
     console.log('User batch:', user.batch);
     console.log('User graduationYear field:', user.graduationYear);
     
@@ -622,13 +682,93 @@ router.get('/', async (req, res) => {
     const adminDb = mongoose.connection.useDb("local_Administration");
     console.log('🔌 Connected to local_Administration database');
     
-    // ==========================================
-    // STEP 1: Check if user exists in assign_roles table
-    // ==========================================
-    console.log('\n📋 STEP 1: Checking assign_roles for memberId:', user._id);
+    // ========== STEP 1: FIRST CHECK - Is user admin by label? (based on placement code) ==========
+    if (isAdminByLabel(user)) {
+      console.log('👑 Admin detected by label - giving full mentorship access');
+      
+      // Get admin role ID (roleId 10 like in placement, or find it in roles table)
+      const adminRole = await adminDb
+        .collection("roles")
+        .findOne({ name: { $regex: /^admin$/i } });
+      
+      const roleIds = adminRole ? [adminRole.roleId] : [10]; // Fallback to 10
+      const roleNames = adminRole ? [adminRole.name] : ['Admin'];
+      
+      console.log('📋 Admin role IDs:', roleIds);
+      console.log('📋 Admin role names:', roleNames);
+      
+      // Get permissions for admin
+      const permissions = await adminDb
+        .collection("role_mapping")
+        .find({ 
+          roleId: { $in: roleIds },
+          canView: true 
+        })
+        .toArray();
+      
+      console.log(`📋 Found ${permissions.length} role mappings for admin`);
+      
+      // Get MENTORSHIP screens only
+      let quickActions = [];
+      if (permissions.length > 0) {
+        const screenIds = [...new Set(permissions.map(p => p.screenId))];
+        console.log('🎯 Screen IDs:', screenIds);
+        
+        const screens = await adminDb
+          .collection("screens")
+          .find({ 
+            screenId: { $in: screenIds },
+            module: 'MENTORSHIP'  // Uppercase as in your database
+          })
+          .toArray();
+        
+        console.log(`📱 Found ${screens.length} MENTORSHIP screens for admin`);
+        
+        const screenMap = {};
+        screens.forEach(screen => { screenMap[screen.screenId] = screen; });
+        
+        quickActions = permissions
+          .filter(p => screenMap[p.screenId])
+          .map(permission => {
+            const screen = screenMap[permission.screenId];
+            return {
+              id: screen.screenId,
+              title: screen.name,
+              description: `Access ${screen.name}`,
+              icon: getIconForScreen(screen.name),
+              path: screen.route,
+              color: getColorForScreen(screen.name),
+              module: screen.module,
+              roleName: roleNames.join(', '),
+              permissions: {
+                canView: permission.canView,
+                canCreate: permission.canCreate || false,
+                canEdit: permission.canEdit || false,
+                canDelete: permission.canDelete || false
+              }
+            };
+          });
+      }
+      
+      console.log(`✅ Admin Response: ${quickActions.length} mentorship quick actions`);
+      
+      return res.json({
+        success: true,
+        role: 'admin',
+        userType: 'admin',
+        roleIds,
+        roleNames,
+        isCoordinator: false, // Admin is not a coordinator specifically
+        quickActions,
+        isAssignedRole: true
+      });
+    }
+    
+    // ========== STEP 2: If not admin, check assign_roles for mentorship coordinator ==========
+    console.log('\n📋 User is not admin - checking assign_roles for mentorship coordinator...');
     const assignedRoles = await adminDb
       .collection("assign_roles")
-      .find({ memberId: user._id })
+      .find({ memberId: user._id.toString() }) // Convert to string like placement code
       .toArray();
     
     console.log('📊 assign_roles found:', assignedRoles.length);
@@ -638,133 +778,146 @@ router.get('/', async (req, res) => {
     let quickActions = [];
     let userType = 'unknown';
     let roleNames = [];
-    let isCoordinator = false;
-    let isAssignedRole = assignedRoles && assignedRoles.length > 0;
+    let isMentorshipCoordinator = false;
+    let isAssignedRole = false;
     
-    if (isAssignedRole) {
-      // ==========================================
-      // CASE 1: USER HAS ASSIGNED ROLES
-      // ==========================================
-      console.log('✅ User HAS assigned roles');
-      
-      // Get ALL roleIds from assign_roles
-      roleIds = assignedRoles.map(role => role.roleId);
-      console.log('Role IDs:', roleIds);
+    // Only process assigned roles if they exist
+    if (assignedRoles && assignedRoles.length > 0) {
+      // Get role IDs from assign_roles
+      const potentialRoleIds = assignedRoles.map(role => role.roleId);
+      console.log('Potential Role IDs:', potentialRoleIds);
       
       // Get role names from roles table
       console.log('🔍 Fetching role names from roles table...');
-      const roles = await adminDb
+      const potentialRoles = await adminDb
         .collection("roles")
-        .find({ roleId: { $in: roleIds } })
+        .find({ roleId: { $in: potentialRoleIds } })
         .toArray();
-      console.log('Roles found:', roles.length);
+      console.log('Potential roles found:', potentialRoles.length);
       
-      // Store role names
-      roleNames = roles.map(r => r.name);
+      // Log all role names for debugging
+      console.log('Role names from assign_roles:');
+      potentialRoles.forEach(r => console.log(`  - ${r.name}`));
       
-      // Check if any of the roles is a coordinator role
-      isCoordinator = roles.some(r => isCoordinatorRole(r.name));
-      console.log('Is coordinator:', isCoordinator);
+      // STRICT CHECK: Check if ANY of the roles is a mentorship coordinator role
+      // Using the strict function that requires BOTH "mentorship" AND "coordinator"
+      isMentorshipCoordinator = potentialRoles.some(r => isMentorshipCoordinatorRole(r.name));
+      console.log('Is mentorship coordinator (strict check):', isMentorshipCoordinator);
       
-      if (roleNames.length > 0) {
-        role = roleNames.join(', ');
-        console.log('Role names:', role);
-      }
-      
-      // Set userType based on roles
-      if (isCoordinator) {
-        userType = 'coordinator';
-      } else {
-        // Check if user has specific role types
-        const hasStudentRole = roles.some(r => r.name.toLowerCase().includes('student'));
-        const hasAlumniRole = roles.some(r => r.name.toLowerCase().includes('alumni'));
-        const hasMentorRole = roles.some(r => r.name.toLowerCase().includes('mentor'));
-        const hasMenteeRole = roles.some(r => r.name.toLowerCase().includes('mentee'));
+      // ONLY process if user is a mentorship coordinator
+      if (isMentorshipCoordinator) {
+        console.log('✅ User IS a mentorship coordinator - processing assigned roles');
+        isAssignedRole = true;
         
-        if (hasStudentRole || hasMenteeRole) {
-          userType = 'student';
-        } else if (hasAlumniRole || hasMentorRole) {
-          userType = 'alumni';
-        } else {
-          userType = 'assigned';
+        // Get ALL roleIds from assign_roles
+        roleIds = assignedRoles.map(role => role.roleId);
+        console.log('Role IDs:', roleIds);
+        
+        // Store role names
+        roleNames = potentialRoles.map(r => r.name);
+        
+        if (roleNames.length > 0) {
+          role = roleNames.join(', ');
+          console.log('Role names:', role);
         }
-      }
-      
-      // Get permissions from role_mapping for ALL roleIds
-      console.log('🔍 Fetching permissions from role_mapping...');
-      const permissions = await adminDb
-        .collection("role_mapping")
-        .find({ 
-          roleId: { $in: roleIds },
-          canView: true 
-        })
-        .toArray();
-      console.log('Permissions found:', permissions.length);
-      
-      if (permissions.length > 0) {
-        // Get unique screenIds
-        const screenIds = [...new Set(permissions.map(p => p.screenId))];
-        console.log('Unique Screen IDs:', screenIds);
         
-        // IMPORTANT: Only fetch screens where module is 'MENTORSHIP' (uppercase)
-        console.log('🔍 Fetching MENTORSHIP screens from screens table...');
-        const screens = await adminDb
-          .collection("screens")
+        // Set userType based on roles
+        if (isMentorshipCoordinator) {
+          userType = 'coordinator';
+        }
+        
+        // Get permissions from role_mapping for ALL roleIds
+        console.log('🔍 Fetching permissions from role_mapping...');
+        const permissions = await adminDb
+          .collection("role_mapping")
           .find({ 
-            screenId: { $in: screenIds },
-            module: 'MENTORSHIP'  // Uppercase as in your database
+            roleId: { $in: roleIds },
+            canView: true 
           })
           .toArray();
-        console.log('MENTORSHIP screens found:', screens.length);
+        console.log('Permissions found:', permissions.length);
         
-        // Create screen map for quick lookup
-        const screenMap = {};
-        screens.forEach(screen => {
-          screenMap[screen.screenId] = screen;
-        });
-        
-        // Filter permissions to only those with mentorship screens
-        const mentorshipPermissions = permissions.filter(p => screenMap[p.screenId]);
-        
-        console.log('Building quick actions from MENTORSHIP screens...');
-        // Build quick actions
-        quickActions = mentorshipPermissions.map(permission => {
-          const screen = screenMap[permission.screenId];
-          if (!screen) return null;
+        if (permissions.length > 0) {
+          // Get unique screenIds
+          const screenIds = [...new Set(permissions.map(p => p.screenId))];
+          console.log('Unique Screen IDs:', screenIds);
           
-          // Get the specific role that gave this permission
-          const permissionRole = roles.find(r => r.roleId === permission.roleId);
+          // IMPORTANT: Only fetch screens where module is 'MENTORSHIP' (uppercase)
+          console.log('🔍 Fetching MENTORSHIP screens from screens table...');
+          const screens = await adminDb
+            .collection("screens")
+            .find({ 
+              screenId: { $in: screenIds },
+              module: 'MENTORSHIP'  // Uppercase as in your database
+            })
+            .toArray();
+          console.log('MENTORSHIP screens found:', screens.length);
           
-          return {
-            id: screen.screenId,
-            title: screen.name,
-            description: `Access ${screen.name}`,
-            icon: getIconForScreen(screen.name),
-            path: screen.route,
-            color: getColorForScreen(screen.name),
-            module: screen.module, // Will always be 'MENTORSHIP'
-            roleIds: [permission.roleId],
-            roleName: permissionRole ? permissionRole.name : null,
-            permissions: {
-              canView: permission.canView,
-              canCreate: permission.canCreate || false,
-              canEdit: permission.canEdit || false,
-              canDelete: permission.canDelete || false
-            }
-          };
-        }).filter(action => action !== null);
-        
-        console.log('✅ Quick actions built from MENTORSHIP screens:', quickActions.length);
+          // Create screen map for quick lookup
+          const screenMap = {};
+          screens.forEach(screen => {
+            screenMap[screen.screenId] = screen;
+          });
+          
+          // Filter permissions to only those with mentorship screens
+          const mentorshipPermissions = permissions.filter(p => screenMap[p.screenId]);
+          
+          console.log('Building quick actions from MENTORSHIP screens...');
+          // Build quick actions
+          quickActions = mentorshipPermissions.map(permission => {
+            const screen = screenMap[permission.screenId];
+            if (!screen) return null;
+            
+            // Get the specific role that gave this permission
+            const permissionRole = potentialRoles.find(r => r.roleId === permission.roleId);
+            
+            return {
+              id: screen.screenId,
+              title: screen.name,
+              description: `Access ${screen.name}`,
+              icon: getIconForScreen(screen.name),
+              path: screen.route,
+              color: getColorForScreen(screen.name),
+              module: screen.module, // Will always be 'MENTORSHIP'
+              roleIds: [permission.roleId],
+              roleName: permissionRole ? permissionRole.name : null,
+              permissions: {
+                canView: permission.canView,
+                canCreate: permission.canCreate || false,
+                canEdit: permission.canEdit || false,
+                canDelete: permission.canDelete || false
+              }
+            };
+          }).filter(action => action !== null);
+          
+          console.log('✅ Quick actions built from MENTORSHIP screens:', quickActions.length);
+        } else {
+          console.log('ℹ️ No permissions found for roles');
+        }
       } else {
-        console.log('ℹ️ No permissions found for roles');
+        console.log('ℹ️ User has assigned roles but is NOT a mentorship coordinator - skipping assigned roles processing');
+        // Skip to the next steps (mentee/mentor tables)
+      }
+    } else {
+      console.log('ℹ️ No assigned roles found');
+    }
+    
+    // ==========================================
+    // If user is NOT a mentorship coordinator, proceed with regular checks
+    // ==========================================
+    if (!isMentorshipCoordinator) {
+      console.log('\n📋 User is NOT a mentorship coordinator - proceeding with regular checks');
+      
+      // Reset role and userType if they were set from coordinator flow
+      if (!isAssignedRole) {
+        role = 'new_user';
+        userType = 'unknown';
       }
       
-    } else {
       // ==========================================
-      // CASE 2: USER HAS NO ASSIGNED ROLES
-      // STEP 2: Check mentee table using MenteeRequest model
+      // STEP 3: Check mentee table using MenteeRequest model
       // ==========================================
-      console.log('\n📋 STEP 2: User has NO assigned roles - checking mentee table');
+      console.log('\n📋 STEP 3: Checking mentee table');
       
       const menteeCheck = await checkMenteeTable(user._id);
       
@@ -795,9 +948,9 @@ router.get('/', async (req, res) => {
         }
       } else {
         // ==========================================
-        // STEP 3: Check mentor table using MentorRegistration model
+        // STEP 4: Check mentor table using MentorRegistration model
         // ==========================================
-        console.log('\n📋 STEP 3: Not in mentee table - checking mentor table');
+        console.log('\n📋 STEP 4: Not in mentee table - checking mentor table');
         
         const mentorCheck = await checkMentorTable(user._id);
         
@@ -828,22 +981,15 @@ router.get('/', async (req, res) => {
           }
         } else {
           // ==========================================
-          // STEP 4: Determine student/alumni status
+          // STEP 5: Determine student/alumni status
           // ==========================================
-          console.log('\n📋 STEP 4: Not in mentee or mentor tables - determining student/alumni status');
+          console.log('\n📋 STEP 5: Not in mentee or mentor tables - determining student/alumni status');
           
-          // Check if admin first
-          if (user.basic?.email_id === 'admin@gmail.com') {
-            userType = 'admin';
-            role = 'admin';
-            console.log('👑 Admin user detected');
-          } else {
-            // Determine user type based on graduation year
-            console.log('🔍 Searching for graduation year in all fields...');
-            userType = determineUserType(user);
-            role = userType;
-            console.log('✅ Final user type determined:', userType);
-          }
+          // Determine user type based on graduation year
+          console.log('🔍 Searching for graduation year in all fields...');
+          userType = determineUserType(user);
+          role = userType;
+          console.log('✅ Final user type determined:', userType);
           
           // Get default roleId from roles table
           const defaultRoleId = await getDefaultRoleId(adminDb, userType);
@@ -875,9 +1021,9 @@ router.get('/', async (req, res) => {
     console.log('userType:', userType);
     console.log('roleIds:', roleIds);
     console.log('roleNames:', roleNames);
-    console.log('isCoordinator:', isCoordinator);
+    console.log('isMentorshipCoordinator:', isMentorshipCoordinator);
     console.log('quickActionsCount (MENTORSHIP only):', quickActions.length);
-    console.log('isAssignedRole:', isAssignedRole);
+    console.log('isAssignedRole (only for mentorship coordinators):', isAssignedRole);
     console.log('=====================================\n');
     
     res.json({ 
@@ -886,9 +1032,9 @@ router.get('/', async (req, res) => {
       userType,
       roleIds,
       roleNames,
-      isCoordinator,
+      isCoordinator: isMentorshipCoordinator, // Renamed for frontend compatibility
       quickActions, // This will ONLY contain MENTORSHIP module screens
-      isAssignedRole
+      isAssignedRole: isAssignedRole
     });
     
   } catch (error) {
@@ -902,8 +1048,8 @@ router.get('/', async (req, res) => {
 });
 
 // ==========================================
-// UPDATED: Helper function to fetch permissions for a role
-// NOW FILTERS FOR MENTORSHIP MODULE ONLY (UPPERCASE)
+// Helper function to fetch permissions for a role
+// FILTERS FOR MENTORSHIP MODULE ONLY (UPPERCASE)
 // ==========================================
 async function fetchPermissionsForRole(adminDb, roleId, role, quickActionsArray) {
   console.log(`🔍 Fetching permissions from role_mapping for roleId: ${roleId}`);
