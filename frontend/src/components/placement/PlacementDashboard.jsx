@@ -4,7 +4,8 @@ import {
   Search, X, Mail, Calendar, DollarSign, Briefcase, User, ChevronRight, 
   ChevronLeft as ChevronLeftIcon, MoreVertical, Video, GraduationCap,
   LayoutDashboard, Building, Link, Table, MessageSquare, Star,
-  FileText, HelpCircle, BarChart3
+  FileText, HelpCircle, BarChart3,
+  Shield, Settings
 } from 'lucide-react';
 import './PlacementDashboard.css';
 import AdminDashboard from './AdminDashboard';
@@ -76,7 +77,9 @@ const iconMap = {
   'Star': Star,
   'FileText': FileText,
   'HelpCircle': HelpCircle,
-  'BarChart3': BarChart3
+  'BarChart3': BarChart3,
+  'Shield': Shield,
+  'Settings': Settings
 };
 
 const PlacementDashboard = ({ onBackToHome }) => {
@@ -199,7 +202,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
       if (email) {
         setUserEmail(email);
         
-        // Fetch permissions from placement auth API
+        // ✅ ALL USERS (including admin) - Fetch from backend
         const permissionsData = await fetchUserPermissions(email);
         
         if (permissionsData) {
@@ -486,6 +489,17 @@ const PlacementDashboard = ({ onBackToHome }) => {
     }
   };
 
+  // Admin Dashboard navigation (only for admin users)
+  const handleAdminDashboardClick = () => {
+    setShowDropdown(false);
+    if (userEmail) {
+      const encryptedEmail = encryptEmail(userEmail);
+      navigate(`/local-admin-dashboard?email=${encodeURIComponent(encryptedEmail)}`);
+    } else {
+      navigate('/local-admin-dashboard');
+    }
+  };
+
   const mapStatus = (alumniStatus) => {
     const statusMap = {
       'Not Applied': 'pending',
@@ -518,7 +532,6 @@ const PlacementDashboard = ({ onBackToHome }) => {
     const email = emailInput.trim().toLowerCase();
     setUserEmail(email);
     
-    // Fetch permissions
     const permissionsData = await fetchUserPermissions(email);
     
     if (permissionsData) {
@@ -530,7 +543,7 @@ const PlacementDashboard = ({ onBackToHome }) => {
         await checkPlacementRequestStatus(email);
       } else {
         setAccessDenied(true);
-        setAccessMessage(`You are a ${permissionsData.userType || 'student'}. Only alumni, placement coordinators, and admins can access the placement portal.`);
+        setAccessMessage(`You are a ${permissionsData.userType || 'student'}. Only alumni, placement coordinators, and admins can access.`);
       }
     } else {
       // Fallback to old method
@@ -542,15 +555,13 @@ const PlacementDashboard = ({ onBackToHome }) => {
     }
   };
 
-  // ✅ FIXED: Pure database-driven navigation
+  // Pure database-driven navigation
   const handleQuickAction = (action) => {
     console.log('Quick action clicked:', action);
     
     if (action.path) {
-      // Navigate using path from database
       navigate(`${action.path}?email=${encodeURIComponent(userEmail)}`);
     } else if (action.id) {
-      // Fallback - shouldn't happen if backend sends path
       console.warn('No path in action, using ID:', action.id);
     }
   };
@@ -855,6 +866,22 @@ const PlacementDashboard = ({ onBackToHome }) => {
     const endIndex = startIndex + applicationsPerPage;
     const displayedApplications = analyticsData?.applications.slice(startIndex, endIndex) || [];
 
+    // Helper function to get user badge based on userType
+    const getUserBadge = () => {
+      switch(userType) {
+        case 'admin':
+          return { text: 'Admin', bg: '#ef4444' }; // Red
+        case 'placement_coordinator':
+          return { text: 'Coordinator', bg: '#8b5cf6' }; // Purple
+        case 'alumni':
+          return { text: 'Alumni', bg: '#7c3aed' }; // Blue
+        case 'student':
+          return { text: 'Student', bg: '#6b7280' }; // Gray
+        default:
+          return { text: userType, bg: '#6b7280' };
+      }
+    };
+
     if (authLoading) {
       return (
         <div style={{
@@ -901,6 +928,8 @@ const PlacementDashboard = ({ onBackToHome }) => {
       setCurrentPage(pageNumber);
     };
 
+    const badge = getUserBadge();
+
     return (
       <div className="placement-dashboard">
         <div className="dashboard-content">
@@ -915,13 +944,13 @@ const PlacementDashboard = ({ onBackToHome }) => {
                 <span style={{ 
                   marginLeft: '8px',
                   padding: '2px 8px',
-                  background: userType === 'admin' ? '#ef4444' : (userType === 'placement_coordinator' ? '#8b5cf6' : '#7c3aed'),
+                  background: badge.bg,
                   color: 'white',
                   borderRadius: '12px',
                   fontSize: '12px',
                   textTransform: 'capitalize'
                 }}>
-                  {userType === 'placement_coordinator' ? 'Coordinator' : userType}
+                  {badge.text}
                 </span>
               </p>
               {roleNames.length > 0 && (
@@ -956,6 +985,16 @@ const PlacementDashboard = ({ onBackToHome }) => {
                     <GraduationCap size={18} />
                     <span>Mentorship</span>
                   </button>
+                  {/* Show Admin Dashboard only for admin users */}
+                  {userType === 'admin' && (
+                    <button 
+                      className="dropdown-item"
+                      onClick={handleAdminDashboardClick}
+                    >
+                      <Shield size={18} />
+                      <span>Admin Dashboard</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1266,139 +1305,136 @@ const PlacementDashboard = ({ onBackToHome }) => {
     );
   };
 
-const renderCurrentView = () => {
-  if (authLoading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '400px'
-      }}>
-        <div className="dashboard-spinner"></div>
-        <p style={{ marginLeft: '10px' }}>Authenticating...</p>
-      </div>
-    );
-  }
-
-  if (accessDenied) {
-    return <AccessDeniedView />;
-  }
-
-  if (view === 'email-entry') {
-    return <EmailEntryView />;
-  }
-
-  // Get email from state or localStorage
-  const currentEmail = userEmail || localStorage.getItem('userEmail');
-  console.log('📧 Current email for components:', currentEmail);
-
-  if (userType === 'admin' || userType === 'placement_coordinator' || userType === 'alumni') {
-    switch (view) {
-      case 'dashboard':
-        return <DashboardView />;
-        
-      case 'admin-dashboard':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AdminDashboard />
-          </div>
-        );
-        
-      case 'assigned-companies':
-     
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AssignedCompanies userEmail={currentEmail} />
-          </div>
-        );
-        
-      case 'add-company':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
-          </div>
-        );
-        
-      case 'all-companies':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <Companies />
-          </div>
-        );
-        
-      case 'interview-results':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <InterviewResults />
-          </div>
-        );
-        
-      case 'interview-results-view':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
-          </div>
-        );
-        
-      case 'alumni-feedback-display':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AlumniFeedbackDisplay />
-          </div>
-        );
-        
-      case 'alumni-job-requests':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
-          </div>
-        );
-        
-      case 'placement-feedback':
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <PlacementFeedbackForm />
-          </div>
-        );
-        
-      case 'placement-data-request':
-       
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <PlacementDataRequestForm 
-              userEmail={currentEmail}
-              onSubmitSuccess={handlePlacementRequestSubmit}
-            />
-          </div>
-        );
-        
-      case 'requester-feedback':
-  
-        return (
-          <div className="component-wrapper">
-            <SimpleBackButton />
-            <RequesterFeedbackForm userEmail={currentEmail} />
-          </div>
-        );
-        
-      default:
-        return <DashboardView />;
+  const renderCurrentView = () => {
+    if (authLoading) {
+      return (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '400px'
+        }}>
+          <div className="dashboard-spinner"></div>
+          <p style={{ marginLeft: '10px' }}>Authenticating...</p>
+        </div>
+      );
     }
-  }
 
-  return <EmailEntryView />;
-};
+    if (accessDenied) {
+      return <AccessDeniedView />;
+    }
+
+    if (view === 'email-entry') {
+      return <EmailEntryView />;
+    }
+
+    // Get email from state or localStorage
+    const currentEmail = userEmail || localStorage.getItem('userEmail');
+    console.log('📧 Current email for components:', currentEmail);
+
+    if (userType === 'admin' || userType === 'placement_coordinator' || userType === 'alumni') {
+      switch (view) {
+        case 'dashboard':
+          return <DashboardView />;
+          
+        case 'admin-dashboard':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AdminDashboard />
+            </div>
+          );
+          
+        case 'assigned-companies':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AssignedCompanies userEmail={currentEmail} />
+            </div>
+          );
+          
+        case 'add-company':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <CompanyRegistrationForm onCompanyAdded={handleCompanyAdded} />
+            </div>
+          );
+          
+        case 'all-companies':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <Companies />
+            </div>
+          );
+          
+        case 'interview-results':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <InterviewResults />
+            </div>
+          );
+          
+        case 'interview-results-view':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <InterviewResultsView onBackToDashboard={handleBackToDashboard} />
+            </div>
+          );
+          
+        case 'alumni-feedback-display':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AlumniFeedbackDisplay />
+            </div>
+          );
+          
+        case 'alumni-job-requests':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <AlumniJobRequestsDisplay onBackToDashboard={handleBackToDashboard} />
+            </div>
+          );
+          
+        case 'placement-feedback':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <PlacementFeedbackForm />
+            </div>
+          );
+          
+        case 'placement-data-request':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <PlacementDataRequestForm 
+                userEmail={currentEmail}
+                onSubmitSuccess={handlePlacementRequestSubmit}
+              />
+            </div>
+          );
+          
+        case 'requester-feedback':
+          return (
+            <div className="component-wrapper">
+              <SimpleBackButton />
+              <RequesterFeedbackForm userEmail={currentEmail} />
+            </div>
+          );
+          
+        default:
+          return <DashboardView />;
+      }
+    }
+
+    return <EmailEntryView />;
+  };
   
   return (
     <div className="dashboard-wrapper">
