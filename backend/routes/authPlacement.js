@@ -51,7 +51,7 @@ const determineUserType = (user) => {
   return 'student';
 };
 
-// ========== FIXED: Check if user is admin based on label (checking inside basic object) ==========
+
 const isAdminByLabel = (user) => {
   if (!user) return false;
   
