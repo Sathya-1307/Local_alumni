@@ -310,7 +310,7 @@ export default function RealTimeDashboard() {
     return () => {
       authInProgress.current = false;
     };
-  }, [location.search, navigate]); // Remove location.pathname from dependencies
+  }, [location.search, navigate]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -566,7 +566,7 @@ export default function RealTimeDashboard() {
       Object.values(timers).forEach(timer => clearInterval(timer));
       dataFetchInProgress.current = false;
     };
-  }, [userEmail, userRole, authLoading, fetchDashboardStats, fetchPhaseStats, fetchAllMentors, fetchAllMentees, fetchAllAssignments, fetchAllMeetings, fetchAllFeedbacks]); // Add all fetch functions to dependencies
+  }, [userEmail, userRole, authLoading, fetchDashboardStats, fetchPhaseStats, fetchAllMentors, fetchAllMentees, fetchAllAssignments, fetchAllMeetings, fetchAllFeedbacks]);
 
   // Use a ref for timers to avoid dependency issues
   const timersRef = useRef(timers);
@@ -737,12 +737,28 @@ export default function RealTimeDashboard() {
   // Handle Placement navigation with ENCRYPTED email
   const handlePlacementClick = () => {
     setShowDropdown(false);
+    const placementUrl = new URL(
+      `${import.meta.env.BASE_URL}placement-dashboard`,
+      window.location.origin
+    );
     if (userEmail) {
       // ENCRYPT email for Placement
       const encryptedEmail = encryptEmail(userEmail);
-      window.open(`http://localhost:5173/alumnimain/placement-dashboard?email=${encodeURIComponent(encryptedEmail)}`, '_blank');
+      placementUrl.searchParams.set('email', encryptedEmail);
+      window.open(placementUrl.toString(), '_blank');
     } else {
-      window.open('http://localhost:5173/alumnimain/placement-dashboard', '_blank');
+      window.open(placementUrl.toString(), '_blank');
+    }
+  };
+
+  // Admin Dashboard navigation (only for admin users)
+  const handleAdminDashboardClick = () => {
+    setShowDropdown(false);
+    if (userEmail) {
+      const encryptedEmail = encryptEmail(userEmail);
+      navigate(`/local-admin-dashboard?email=${encodeURIComponent(encryptedEmail)}`);
+    } else {
+      navigate('/local-admin-dashboard');
     }
   };
 
@@ -1166,6 +1182,11 @@ export default function RealTimeDashboard() {
     );
   }
 
+  // Debug: Log userType and userRole to console to see what values they have
+  console.log('Current userType:', userType);
+  console.log('Current userRole:', userRole);
+  console.log('Is admin based on userRole?', userRole === 'Admin' || userRole?.toLowerCase() === 'admin');
+
   return (
     <div className="mentorship-dashboard-wrapper">
       <div className="dashboard-animated-bg">
@@ -1208,6 +1229,16 @@ export default function RealTimeDashboard() {
                         <BriefcaseIcon size={18} />
                         <span>Placement</span>
                       </button>
+                      {/* Show Admin Dashboard for users with Admin role */}
+                      {(userRole === 'Admin' || userRole?.toLowerCase() === 'admin') && (
+                        <button 
+                          className="dropdown-item"
+                          onClick={handleAdminDashboardClick}
+                        >
+                          <BarChart3 size={18} />
+                          <span>Admin Dashboard</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
